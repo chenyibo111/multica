@@ -22,6 +22,7 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { AppLink, useOptionalNavigation } from "../../navigation";
 import type {
   Invitation,
+	InviteCandidate,
   MemberRole,
   MemberWithUser,
   PurchaseWorkspaceSeatsRequest,
@@ -115,6 +116,7 @@ type InviteSeatPurchase = {
   workspaceId: string;
   email: string;
   role: MemberRole;
+	inviteeUserID?: string;
   preview: WorkspaceSeatPurchasePreview;
   idempotencyKey: string;
   phase: "review" | "purchasing" | "waiting" | "inviting" | "error";
@@ -448,7 +450,29 @@ export function MembersTab() {
   };
   const [memberQuery, setMemberQuery] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
+	const inviteWorkspaceID = workspace?.id;
+	const [inviteCandidates, setInviteCandidates] = useState<InviteCandidate[]>([]);
+	const [selectedInviteeID, setSelectedInviteeID] = useState<string | null>(null);
+	const [inviteCandidateLoading, setInviteCandidateLoading] = useState(false);
+	const [inviteCandidateError, setInviteCandidateError] = useState(false);
   const [inviteRole, setInviteRole] = useState<MemberRole>("member");
+	useEffect(() => {
+	  if (!inviteOpen || !inviteWorkspaceID || !inviteEmail.includes("@")) {
+	    setInviteCandidates((current) => current.length ? [] : current);
+	    setInviteCandidateLoading(false);
+	    setInviteCandidateError(false);
+	    return;
+	  }
+	  let cancelled = false;
+	  setInviteCandidateLoading(true);
+	  const timer = setTimeout(() => {
+	    void api.listInviteCandidates(inviteWorkspaceID, inviteEmail.trim().toLowerCase())
+	      .then((results) => { if (!cancelled) { setInviteCandidates(results); setInviteCandidateError(false); } })
+	      .catch(() => { if (!cancelled) { setInviteCandidates([]); setInviteCandidateError(true); } })
+	      .finally(() => { if (!cancelled) setInviteCandidateLoading(false); });
+	  }, 300);
+	  return () => { cancelled = true; clearTimeout(timer); };
+	}, [inviteOpen, inviteWorkspaceID, inviteEmail]);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSeatPurchase, setInviteSeatPurchase] =
     useState<InviteSeatPurchase | null>(null);
@@ -511,9 +535,9 @@ export function MembersTab() {
     : members;
 
   const sendInvitation = useCallback(
-    async (email: string, role: MemberRole) => {
+    async (email: string, role: MemberRole, inviteeUserID?: string) => {
       if (!workspace) return;
-      await api.createMember(workspace.id, { email, role });
+	  await api.createMember(workspace.id, { email, role, ...(inviteeUserID ? {invitee_user_id:inviteeUserID} : {}) });
       setInviteEmail("");
       setInviteRole("member");
       await qc.invalidateQueries({
@@ -526,11 +550,13 @@ export function MembersTab() {
 
   const handleInviteMember = async () => {
     if (!workspace) return;
+	if (inviteCandidateLoading || inviteCandidateError ||
+	    ((inviteCandidates.length > 1 || inviteCandidates.some((candidate) => candidate.auth_source === "feishu")) && !selectedInviteeID)) return;
     const email = inviteEmail.trim();
     const role = inviteRole;
     setInviteLoading(true);
     try {
-      await sendInvitation(email, role);
+      await sendInvitation(email, role, selectedInviteeID ?? undefined);
       setInviteOpen(false);
     } catch (e) {
       const code = errorCode(e);
@@ -587,6 +613,7 @@ export function MembersTab() {
             workspaceId: workspace.id,
             email,
             role,
+			inviteeUserID: selectedInviteeID ?? undefined,
             preview,
             idempotencyKey: createSeatPurchaseKey(workspace.id),
             phase: "review",
@@ -714,7 +741,7 @@ export function MembersTab() {
 
     dispatchedInvitePurchaseKey.current = purchase.idempotencyKey;
     setInviteSeatPurchase({ ...purchase, phase: "inviting" });
-    void sendInvitation(purchase.email, purchase.role)
+    void sendInvitation(purchase.email, purchase.role, purchase.inviteeUserID)
       .then(() => setInviteSeatPurchase(null))
       .catch((error) => {
         const code = errorCode(error);
@@ -1058,11 +1085,25 @@ export function MembersTab() {
                 autoComplete="email"
                 spellCheck={false}
                 value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
+                onChange={(e) => { setInviteEmail(e.target.value); setSelectedInviteeID(null); setInviteCandidates([]); }}
                 placeholder={t(($) => $.members.invite_email_placeholder)}
                 autoFocus
               />
             </div>
+			{inviteCandidateLoading && <p className="text-caption text-muted-foreground">{t(($) => $.members.invite_account_searching)}</p>}
+			{inviteCandidateError && <p role="alert" className="text-caption text-destructive">{t(($) => $.members.invite_account_search_failed)}</p>}
+			{inviteCandidates.length > 0 && (
+			  <fieldset className="space-y-2">
+			    <legend className="text-body font-medium">{t(($) => $.members.invite_account_label)}</legend>
+			    {inviteCandidates.map((candidate) => (
+			      <label key={candidate.id} className="flex cursor-pointer items-center gap-2 rounded-md border p-2 hover:bg-muted/50 focus-within:ring-2 focus-within:ring-ring">
+			        <input type="radio" name="invitee-account" value={candidate.id} checked={selectedInviteeID === candidate.id} onChange={() => setSelectedInviteeID(candidate.id)} />
+			        <span>{candidate.name}</span>
+			        <span className="text-caption text-muted-foreground">{candidate.auth_source === "feishu" ? t(($) => $.members.invite_account_feishu) : t(($) => $.members.invite_account_local)}</span>
+			      </label>
+			    ))}
+			  </fieldset>
+			)}
             <div className="space-y-1.5">
               <Label htmlFor="invite-role">{t(($) => $.members.role_label)}</Label>
               <Select
@@ -1098,7 +1139,7 @@ export function MembersTab() {
               </Button>
               <Button
                 type="submit"
-                disabled={inviteLoading || !inviteEmail.trim()}
+                disabled={inviteLoading || inviteCandidateLoading || inviteCandidateError || !inviteEmail.trim() || (inviteCandidates.some((candidate) => candidate.auth_source === "feishu") && !selectedInviteeID) || (inviteCandidates.length > 1 && !selectedInviteeID)}
                 aria-busy={inviteLoading || undefined}
               >
                 {inviteLoading ? t(($) => $.members.inviting) : t(($) => $.members.invite_button)}

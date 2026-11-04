@@ -108,6 +108,10 @@ type mockDB struct {
 }
 
 func (m *mockDB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+	if strings.HasPrefix(sql, "-- name: HasFeishuUserByEmail :one\n") {
+		found := false
+		return &mockRow{boolValue: &found}
+	}
 	if strings.HasPrefix(sql, "-- name: HasPendingInvitationForEmail :one\n") {
 		m.invitationLookups++
 		m.invitationEmail = args[0].(string)

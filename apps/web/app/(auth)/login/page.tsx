@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { sanitizeNextUrl, useAuthStore } from "@multica/core/auth";
@@ -61,6 +61,7 @@ function LoginPageContent() {
   const qc = useQueryClient();
   const { t } = useT("auth");
   const googleClientId = useConfigStore((state) => state.googleClientId);
+	const feishuSSOEnabled = useConfigStore((state) => state.feishuSSOEnabled);
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const searchParams = useSearchParams();
@@ -165,6 +166,20 @@ function LoginPageContent() {
     .filter(Boolean)
     .join(",") || undefined;
 
+	const startFeishuLogin = useCallback(() => {
+	  const params = new URLSearchParams();
+	  if (nextUrl) params.set("next", nextUrl);
+	  if (platform === "desktop") params.set("platform", "desktop");
+	  if (cliCallbackRaw && validateCliCallback(cliCallbackRaw)) {
+	    params.set("cli_callback", cliCallbackRaw);
+	    if (cliState) params.set("cli_state", cliState);
+	  }
+	  window.location.assign(`${api.getBaseUrl()}/auth/feishu/start?${params}`);
+	}, [nextUrl, platform, cliCallbackRaw, cliState]);
+	useEffect(() => {
+	  if (feishuSSOEnabled && searchParams.get("feishu") === "1") startFeishuLogin();
+	}, [feishuSSOEnabled, searchParams, startFeishuLogin]);
+
   // While the desktop handoff is in progress (or has produced a token/error),
   // render a dedicated screen instead of flashing the login form or redirecting
   // away to a workspace page.
@@ -227,6 +242,7 @@ function LoginPageContent() {
             }
           : undefined
       }
+	  onFeishuLogin={feishuSSOEnabled ? startFeishuLogin : undefined}
       cliCallback={
         cliCallbackRaw && validateCliCallback(cliCallbackRaw)
           ? { url: cliCallbackRaw, state: cliState }

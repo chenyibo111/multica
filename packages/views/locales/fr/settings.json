@@ -1352,6 +1352,11 @@
   },
   "members": {
     "invite_title": "Inviter un membre",
+    "invite_account_label": "Choisir un compte",
+    "invite_account_local": "Compte e-mail",
+    "invite_account_feishu": "Compte Feishu",
+    "invite_account_searching": "Recherche des comptes…",
+    "invite_account_search_failed": "Impossible de rechercher les comptes. Réessayez.",
     "invite_email_placeholder": "utilisateur@entreprise.com",
     "invite_button": "Inviter",
     "inviting": "Invitation...",

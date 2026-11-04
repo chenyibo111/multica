@@ -66,6 +66,7 @@ vi.mock("@multica/core/auth", () => ({
 }));
 
 vi.mock("@multica/core/api", () => ({
+  errorCode: (err: unknown) => (err as { body?: { code?: string } })?.body?.code,
   api: {
     listWorkspaces: mockApiListWorkspaces,
     verifyCode: mockApiVerifyCode,
@@ -147,6 +148,17 @@ describe("LoginPage", () => {
       screen.getByRole("button", { name: /continue/i }),
     ).toBeInTheDocument();
   });
+
+	it("shows the Feishu entry only when configured", async () => {
+	  renderWithI18n(<LoginPage onSuccess={onSuccess} />);
+	  expect(screen.queryByRole("button", { name: "Continue with Feishu" })).toBeNull();
+	  const onFeishuLogin = vi.fn();
+	  const user = userEvent.setup();
+	  const { unmount } = renderWithI18n(<LoginPage onSuccess={onSuccess} onFeishuLogin={onFeishuLogin} />);
+	  await user.click(screen.getByRole("button", { name: "Continue with Feishu" }));
+	  expect(onFeishuLogin).toHaveBeenCalledOnce();
+	  unmount();
+	});
 
   // -------------------------------------------------------------------------
   // Email validation
@@ -246,6 +258,17 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Rate limited")).toBeInTheDocument();
     });
+  });
+
+  it("localizes the Feishu-only account error", async () => {
+    mockSendCode.mockRejectedValueOnce({ body: { code: "feishu_login_required" } });
+    renderWithI18n(<LoginPage onSuccess={onSuccess} onFeishuLogin={vi.fn()} />);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("This email uses a Feishu account. Continue with Feishu.")).toBeInTheDocument();
   });
 
   it("shows generic error when sendCode throws non-Error", async () => {

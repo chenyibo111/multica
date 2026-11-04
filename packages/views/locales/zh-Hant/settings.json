@@ -1342,6 +1342,11 @@
   },
   "members": {
     "invite_title": "邀請成員",
+    "invite_account_label": "選擇帳號",
+    "invite_account_local": "電子郵件帳號",
+    "invite_account_feishu": "飛書帳號",
+    "invite_account_searching": "正在查找帳號…",
+    "invite_account_search_failed": "查找帳號失敗，請重試。",
     "invite_email_placeholder": "user@company.com",
     "invite_button": "邀請",
     "inviting": "邀請中...",

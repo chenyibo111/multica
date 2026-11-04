@@ -246,6 +246,9 @@ func RenewSessionToken(claims jwt.MapClaims) (string, time.Time, error) {
 	if name, ok := claims["name"].(string); ok && name != "" {
 		next["name"] = name
 	}
+	if ssoSID, ok := claims["sso_sid"].(string); ok && ssoSID != "" {
+		next["sso_sid"] = ssoSID
+	}
 
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, next).SignedString(JWTSecret())
 	if err != nil {

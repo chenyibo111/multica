@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_invitation_user_target_pending;

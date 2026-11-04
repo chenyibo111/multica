@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -43,17 +44,34 @@ func patCacheKey(hash string) string { return patCachePrefix + hash }
 // Get returns the cached user_id for a token hash. ok=false on cache miss
 // or any Redis error — a dead Redis must not take down auth.
 func (c *PATCache) Get(ctx context.Context, hash string) (userID string, ok bool) {
+	identity, ok := c.GetIdentity(ctx, hash)
+	return identity.UserID, ok
+}
+
+type PATIdentity struct {
+	UserID string `json:"user_id"`
+	SSOSID string `json:"sso_sid,omitempty"`
+}
+
+func (c *PATCache) GetIdentity(ctx context.Context, hash string) (PATIdentity, bool) {
 	if c == nil {
-		return "", false
+		return PATIdentity{}, false
 	}
 	v, err := c.rdb.Get(ctx, patCacheKey(hash)).Result()
 	if err != nil {
 		if !errors.Is(err, redis.Nil) {
 			slog.Warn("pat_cache: get failed; falling back to DB", "error", err)
 		}
-		return "", false
+		return PATIdentity{}, false
 	}
-	return v, true
+	if len(v) > 0 && v[0] == '{' {
+		var identity PATIdentity
+		if json.Unmarshal([]byte(v), &identity) != nil || identity.UserID == "" {
+			return PATIdentity{}, false
+		}
+		return identity, true
+	}
+	return PATIdentity{UserID: v}, true
 }
 
 // Set populates the cache with the given TTL. Callers MUST pass a TTL no
@@ -64,10 +82,22 @@ func (c *PATCache) Get(ctx context.Context, hash string) (userID string, ok bool
 // Errors are logged and swallowed — a cache write failure is not a
 // request failure.
 func (c *PATCache) Set(ctx context.Context, hash, userID string, ttl time.Duration) {
+	c.SetIdentity(ctx, hash, PATIdentity{UserID: userID}, ttl)
+}
+
+func (c *PATCache) SetIdentity(ctx context.Context, hash string, identity PATIdentity, ttl time.Duration) {
 	if c == nil || ttl <= 0 {
 		return
 	}
-	if err := c.rdb.Set(ctx, patCacheKey(hash), userID, ttl).Err(); err != nil {
+	value := identity.UserID
+	if identity.SSOSID != "" {
+		encoded, err := json.Marshal(identity)
+		if err != nil {
+			return
+		}
+		value = string(encoded)
+	}
+	if err := c.rdb.Set(ctx, patCacheKey(hash), value, ttl).Err(); err != nil {
 		slog.Warn("pat_cache: set failed", "error", err)
 	}
 }

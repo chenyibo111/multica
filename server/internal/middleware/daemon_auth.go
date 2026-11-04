@@ -135,6 +135,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			// never these headers (MUL-3428, #4313).
 			r.Header.Del("X-Agent-ID")
 			r.Header.Del("X-Task-ID")
+			r.Header.Del("X-SSO-SID")
 
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
@@ -263,11 +264,11 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			if strings.HasPrefix(tokenString, "mul_") {
 				hash := auth.HashToken(tokenString)
 
-				if userID, ok := patCache.Get(r.Context(), hash); ok {
-					if rejectTemporarilyDisabledUser(w, r, userID, "", DaemonAuthPathPAT) {
+				if identity, ok := patCache.GetIdentity(r.Context(), hash); ok {
+					if rejectTemporarilyDisabledUser(w, r, identity.UserID, "", DaemonAuthPathPAT) || rejectRevokedSSO(w, r, identity.SSOSID) {
 						return
 					}
-					r.Header.Set("X-User-ID", userID)
+					r.Header.Set("X-User-ID", identity.UserID)
 					ctx := context.WithValue(r.Context(), ctxKeyDaemonAuthPath, DaemonAuthPathPAT)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -285,7 +286,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				}
 
 				userID := uuidToString(pat.UserID)
-				if rejectTemporarilyDisabledUser(w, r, userID, "", DaemonAuthPathPAT) {
+				if rejectTemporarilyDisabledUser(w, r, userID, "", DaemonAuthPathPAT) || rejectRevokedSSO(w, r, pat.SsoSid.String) {
 					return
 				}
 				r.Header.Set("X-User-ID", userID)
@@ -294,7 +295,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				if pat.ExpiresAt.Valid {
 					expiresAt = pat.ExpiresAt.Time
 				}
-				patCache.Set(r.Context(), hash, userID, auth.TTLForExpiry(time.Now(), expiresAt))
+				patCache.SetIdentity(r.Context(), hash, auth.PATIdentity{UserID: userID, SSOSID: pat.SsoSid.String}, auth.TTLForExpiry(time.Now(), expiresAt))
 
 				// Cache miss = first request in this TTL window. Refresh
 				// last_used_at; subsequent hits skip the write entirely.
@@ -329,7 +330,8 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				return
 			}
 			email, _ := claims["email"].(string)
-			if rejectTemporarilyDisabledUser(w, r, sub, email, DaemonAuthPathJWT) {
+			ssoSID, _ := claims["sso_sid"].(string)
+			if rejectTemporarilyDisabledUser(w, r, sub, email, DaemonAuthPathJWT) || rejectRevokedSSO(w, r, ssoSID) {
 				return
 			}
 			r.Header.Set("X-User-ID", sub)

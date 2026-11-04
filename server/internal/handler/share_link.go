@@ -345,12 +345,14 @@ func (h *Handler) JoinByShareLink(w http.ResponseWriter, r *http.Request) {
 	// on it dies on the CreateMember 409. The link's role wins — the user
 	// chose this entry point, so the member is created with link.Role below
 	// and the invitation row is only settled, its role left untouched.
-	// idx_invitation_unique_pending guarantees at most one pending row per
-	// (workspace, email).
+	// Resolve an invitation for this account. Email-only invitations remain
+	// available to local accounts for compatibility with earlier invitations.
 	var settledInvitationID pgtype.UUID
-	pendingInv, pendingErr := qtx.GetPendingInvitationByEmail(r.Context(), db.GetPendingInvitationByEmailParams{
-		WorkspaceID:  link.WorkspaceID,
-		InviteeEmail: strings.ToLower(user.Email),
+	pendingInv, pendingErr := qtx.GetPendingInvitationForUser(r.Context(), db.GetPendingInvitationForUserParams{
+		WorkspaceID:       link.WorkspaceID,
+		UserID:            user.ID,
+		Email:             strings.ToLower(user.Email),
+		AllowEmailInvites: user.AuthSource != "feishu",
 	})
 	switch {
 	case pendingErr == nil:

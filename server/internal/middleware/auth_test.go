@@ -8,10 +8,52 @@ import (
 	"testing"
 	"time"
 
+	redismock "github.com/go-redis/redismock/v9"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/redis/go-redis/v9"
 )
+
+func TestAuth_FeishuPATCacheHitChecksRevocation(t *testing.T) {
+	rdb, redisMock := redismock.NewClientMock()
+	cache := auth.NewPATCache(rdb)
+	const raw = "mul_feishu_cache_test"
+	key := "mul:auth:pat:" + auth.HashToken(raw)
+	value := `{"user_id":"user-a","sso_sid":"sid-a"}`
+	redisMock.ExpectSet(key, value, time.Minute).SetVal("OK")
+	for i := 0; i < 3; i++ {
+		redisMock.ExpectGet(key).SetVal(value)
+	}
+	cache.SetIdentity(context.Background(), auth.HashToken(raw), auth.PATIdentity{UserID: "user-a", SSOSID: "sid-a"}, time.Minute)
+	status := http.StatusNoContent
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+	defer provider.Close()
+	t.Setenv("FEISHU_SSO_STATUS_URL", provider.URL)
+	t.Setenv("SSO_SERVICE_KEY", "01234567890123456789012345678901")
+	called := 0
+	next := Auth(nil, cache, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called++; w.WriteHeader(http.StatusOK) }))
+	request := func() int {
+		r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		r.Header.Set("Authorization", "Bearer "+raw)
+		w := httptest.NewRecorder()
+		next.ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := request(); code != http.StatusOK {
+		t.Fatalf("active session: %d", code)
+	}
+	status = http.StatusUnauthorized
+	if code := request(); code != http.StatusUnauthorized || called != 1 {
+		t.Fatalf("revoked cache hit: code=%d called=%d", code, called)
+	}
+	status = http.StatusServiceUnavailable
+	if code := request(); code != http.StatusServiceUnavailable || called != 1 {
+		t.Fatalf("SSO outage: code=%d called=%d", code, called)
+	}
+	if err := redisMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 const redisTestDB = 13
 

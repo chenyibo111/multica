@@ -55,6 +55,7 @@ export interface Member {
 
 export interface User {
   id: string;
+	auth_source?: "local" | "feishu";
   name: string;
   email: string;
   avatar_url: string | null;

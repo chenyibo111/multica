@@ -1,0 +1,32 @@
+# Opt-in companion to the self-host and source-build compose files.
+# Run from D:/AI/multica after starting D:/AI/feishu-sso/compose.yaml.
+services:
+  postgres:
+    networks:
+      default:
+        aliases:
+          - multica-postgres
+
+  backend:
+    environment:
+      # Both Compose projects have a service named postgres. Use an explicit
+      # alias so DNS cannot select the SSO project's database.
+      DATABASE_URL: postgres://${POSTGRES_USER:-multica}:${POSTGRES_PASSWORD:-multica}@multica-postgres:5432/${POSTGRES_DB:-multica}?sslmode=disable
+      FEISHU_OIDC_CLIENT_ID: ${FEISHU_OIDC_CLIENT_ID:-multica-web}
+      FEISHU_OIDC_ISSUER: ${FEISHU_OIDC_ISSUER:-http://localhost:4444/}
+      FEISHU_OIDC_AUTH_URL: ${FEISHU_OIDC_AUTH_URL:-http://localhost:4444/oauth2/auth}
+      FEISHU_OIDC_TOKEN_URL: ${FEISHU_OIDC_TOKEN_URL:-http://hydra:4444/oauth2/token}
+      FEISHU_OIDC_JWKS_URL: ${FEISHU_OIDC_JWKS_URL:-http://hydra:4444/.well-known/jwks.json}
+      FEISHU_OIDC_REDIRECT_URL: ${FEISHU_OIDC_REDIRECT_URL:-http://localhost:8080/auth/feishu/callback}
+      FEISHU_SSO_STATUS_URL: ${FEISHU_SSO_STATUS_URL:-http://sso:9000/internal/session-status}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:?Set the Feishu custom-app ID from feishu-sso}
+      FEISHU_TENANT_KEY: ${FEISHU_TENANT_KEY:?Set the Feishu tenant key from feishu-sso}
+      SSO_SERVICE_KEY: ${SSO_SERVICE_KEY:?Use the same service key as feishu-sso}
+    networks:
+      - default
+      - feishu_sso
+
+networks:
+  feishu_sso:
+    external: true
+    name: ${FEISHU_SSO_DOCKER_NETWORK:-feishu-sso_default}

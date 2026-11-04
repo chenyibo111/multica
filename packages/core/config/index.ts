@@ -11,6 +11,7 @@ interface ConfigState {
   cdnSigned: boolean;
   allowSignup: boolean;
   googleClientId: string;
+	feishuSSOEnabled: boolean;
   daemonServerUrl: string;
   daemonAppUrl: string;
   daemonConfigStatus: DaemonConfigStatus;
@@ -52,6 +53,7 @@ interface ConfigState {
   setAuthConfig: (config: {
     allowSignup: boolean;
     googleClientId?: string;
+		feishuSSOEnabled?: boolean;
     workspaceCreationDisabled?: boolean;
     vcsIntegrationAvailable?: boolean;
   }) => void;
@@ -75,6 +77,7 @@ export const configStore = createStore<ConfigState>((set) => ({
   cdnSigned: false,
   allowSignup: true,
   googleClientId: "",
+	feishuSSOEnabled: false,
   daemonServerUrl: "",
   daemonAppUrl: "",
   daemonConfigStatus: "loading",
@@ -92,9 +95,10 @@ export const configStore = createStore<ConfigState>((set) => ({
   setAuthConfig: ({
     allowSignup,
     googleClientId = "",
+		feishuSSOEnabled = false,
     workspaceCreationDisabled = false,
     vcsIntegrationAvailable = false,
-  }) => set({ allowSignup, googleClientId, workspaceCreationDisabled, vcsIntegrationAvailable }),
+  }) => set({ allowSignup, googleClientId, feishuSSOEnabled, workspaceCreationDisabled, vcsIntegrationAvailable }),
   setDaemonConfig: ({
     daemonServerUrl = "",
     daemonAppUrl = "",

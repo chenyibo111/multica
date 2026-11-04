@@ -451,6 +451,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		GitExtraCACerts:                gitca.Load(slog.Default()),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	feishuConfig, feishuErr := auth.LoadFeishuOIDCConfig()
+	if feishuErr != nil {
+		slog.Error("Feishu OIDC disabled due to invalid configuration", "error", feishuErr)
+	} else if feishuConfig != nil {
+		h.FeishuOIDC = &auth.FeishuOIDC{Config: *feishuConfig}
+	}
 	invitationRateLimits := handler.DefaultInvitationRateLimits()
 	invitationRateLimits.Actor.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_ACTOR_10M", invitationRateLimits.Actor.Limit)
 	invitationRateLimits.Workspace.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_WORKSPACE_24H", invitationRateLimits.Workspace.Limit)
@@ -1572,6 +1578,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/send-code", h.SendCode)
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	r.With(authRL).Get("/auth/feishu/start", h.FeishuLoginStart)
+	r.Get("/auth/feishu/callback", h.FeishuLoginCallback)
+	r.Get("/auth/feishu/logged-out", h.FeishuLoggedOut)
+	r.Get("/auth/feishu/logout", h.FeishuLogout)
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
@@ -1803,6 +1813,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
 					r.Post("/members", h.CreateInvitation)
+					r.Get("/invite-candidates", h.ListInviteCandidates)
 					r.Route("/members/{memberId}", func(r chi.Router) {
 						r.Patch("/", h.UpdateMember)
 						r.Delete("/", h.DeleteMember)

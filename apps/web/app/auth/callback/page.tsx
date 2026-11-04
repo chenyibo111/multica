@@ -174,6 +174,8 @@ function CallbackContent() {
         return t(($) => $.web.callback.signup_prohibited);
       case "email_not_allowed":
         return t(($) => $.web.callback.email_not_allowed);
+      case "feishu_login_required":
+        return t(($) => $.errors.feishu_login_required);
       case "google_account_no_email":
         return t(($) => $.web.callback.google_account_no_email);
       case "oauth_code_invalid":

@@ -1,6 +1,7 @@
 import { LoginPage } from "@multica/views/auth";
 import { DragStrip } from "@multica/views/platform";
 import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
+import { useConfigStore } from "@multica/core/config";
 
 function requireRuntimeAppUrl(): string {
   const runtimeConfig = window.desktopAPI.runtimeConfig;
@@ -14,6 +15,7 @@ function requireRuntimeAppUrl(): string {
 
 export function DesktopLoginPage() {
   const webUrl = requireRuntimeAppUrl();
+	const feishuSSOEnabled = useConfigStore((state) => state.feishuSSOEnabled);
   const handleGoogleLogin = () => {
     // Open web login page in the default browser with platform=desktop flag.
     // The web callback will redirect back via multica:// deep link with the token.
@@ -32,6 +34,7 @@ export function DesktopLoginPage() {
           // Initial workspace navigation happens in routes.tsx via IndexRedirect.
         }}
         onGoogleLogin={handleGoogleLogin}
+		onFeishuLogin={feishuSSOEnabled ? () => { void window.desktopAPI.openExternal(`${webUrl}/login?platform=desktop&feishu=1`); } : undefined}
       />
     </div>
   );

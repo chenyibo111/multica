@@ -38,6 +38,40 @@ type InvitationResponse struct {
 	WorkspaceName string `json:"workspace_name,omitempty"`
 }
 
+func invitationBelongsToUser(inv db.WorkspaceInvitation, user db.User) bool {
+	if inv.InviteeUserID.Valid {
+		return inv.InviteeUserID == user.ID
+	}
+	return user.AuthSource != "feishu" && strings.EqualFold(user.Email, inv.InviteeEmail)
+}
+
+func (h *Handler) ListInviteCandidates(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	requester, ok := h.workspaceMember(w, r, workspaceID)
+	if !ok {
+		return
+	}
+	if requester.Role != "owner" && requester.Role != "admin" {
+		writeError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+	if email == "" || len(email) > 320 {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	users, err := h.Queries.ListUsersByEmail(r.Context(), email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to find invitees")
+		return
+	}
+	candidates := make([]map[string]string, 0, len(users))
+	for _, user := range users {
+		candidates = append(candidates, map[string]string{"id": uuidToString(user.ID), "name": user.Name, "email": user.Email, "auth_source": user.AuthSource})
+	}
+	writeJSON(w, http.StatusOK, candidates)
+}
+
 func invitationToResponse(inv db.WorkspaceInvitation) InvitationResponse {
 	return InvitationResponse{
 		ID:            uuidToString(inv.ID),
@@ -85,9 +119,32 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if the user is already a member.
-	existingUser, err := h.Queries.GetUserByEmail(r.Context(), email)
-	if err == nil {
+	// Resolve a registered account by ID. Email alone is ambiguous once a
+	// local and a Feishu account can share it; Feishu email is unverified.
+	candidates, err := h.Queries.ListUsersByEmail(r.Context(), email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to find invitee")
+		return
+	}
+	var existingUser db.User
+	if req.InviteeUserID != nil {
+		for _, candidate := range candidates {
+			if uuidToString(candidate.ID) == *req.InviteeUserID {
+				existingUser = candidate
+				break
+			}
+		}
+		if !existingUser.ID.Valid {
+			writeError(w, http.StatusBadRequest, "invitee account does not match email")
+			return
+		}
+	} else if len(candidates) == 1 && candidates[0].AuthSource == "local" {
+		existingUser = candidates[0]
+	} else if len(candidates) > 0 {
+		writeErrorCode(w, http.StatusConflict, "account_selection_required", "choose the account to invite")
+		return
+	}
+	if existingUser.ID.Valid {
 		_, memberErr := h.Queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
 			UserID:      existingUser.ID,
 			WorkspaceID: requester.WorkspaceID,
@@ -120,9 +177,10 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if there is still a live pending invitation.
-	_, err = h.Queries.GetPendingInvitationByEmail(r.Context(), db.GetPendingInvitationByEmailParams{
-		WorkspaceID:  requester.WorkspaceID,
-		InviteeEmail: email,
+	_, err = h.Queries.GetPendingInvitationForTarget(r.Context(), db.GetPendingInvitationForTargetParams{
+		WorkspaceID:   requester.WorkspaceID,
+		InviteeEmail:  email,
+		InviteeUserID: existingUser.ID,
 	})
 	if err == nil {
 		writeError(w, http.StatusConflict, "invitation already pending for this email")
@@ -407,8 +465,9 @@ func (h *Handler) ListMyInvitations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.Queries.ListPendingInvitationsForUser(r.Context(), db.ListPendingInvitationsForUserParams{
-		InviteeUserID: user.ID,
-		InviteeEmail:  user.Email,
+		InviteeUserID:     user.ID,
+		InviteeEmail:      user.Email,
+		AllowEmailInvites: user.AuthSource != "feishu",
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list invitations")
@@ -463,7 +522,7 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load user")
 		return
 	}
-	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
+	if !invitationBelongsToUser(inv, user) {
 		writeError(w, http.StatusForbidden, "invitation does not belong to you")
 		return
 	}
@@ -646,7 +705,7 @@ func (h *Handler) DeclineInvitation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load user")
 		return
 	}
-	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
+	if !invitationBelongsToUser(inv, user) {
 		writeError(w, http.StatusForbidden, "invitation does not belong to you")
 		return
 	}

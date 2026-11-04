@@ -1342,6 +1342,11 @@
   },
   "members": {
     "invite_title": "邀请成员",
+    "invite_account_label": "选择账号",
+    "invite_account_local": "邮箱账号",
+    "invite_account_feishu": "飞书账号",
+    "invite_account_searching": "正在查找账号…",
+    "invite_account_search_failed": "查找账号失败，请重试。",
     "invite_email_placeholder": "user@company.com",
     "invite_button": "邀请",
     "inviting": "邀请中...",

@@ -108,10 +108,16 @@ export function createAuthStore(options: AuthStoreOptions) {
     },
 
     logout: () => {
-      if (cookieAuth) {
-        // Clear server-side HttpOnly cookie.
-        api.logout().catch(() => {});
-      }
+	  if (cookieAuth || get().user?.auth_source === "feishu") {
+	    // Feishu logout continues in the browser that owns the Hydra session.
+	    void api.logout().then((result) => {
+	      const logoutUrl = result?.logout_url;
+	      if (!logoutUrl || typeof window === "undefined") return;
+	      const desktop = (window as unknown as {desktopAPI?: {openExternal: (url:string) => Promise<void>}}).desktopAPI;
+	      if (desktop) void desktop.openExternal(logoutUrl);
+	      else window.location.assign(logoutUrl);
+	    }).catch(() => {});
+	  }
       storage.removeItem("multica_token");
       api.setToken(null);
       setCurrentWorkspace(null, null);
