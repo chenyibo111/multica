@@ -94,6 +94,7 @@ import LoginPage from "./page";
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     searchParamsState.params = new URLSearchParams();
     authStateRef.state.user = null;
     authStateRef.state.isLoading = false;
@@ -120,6 +121,21 @@ describe("LoginPage", () => {
 	it.each(["signed_out=1", "sso_attempted=1"])("does not retry silent SSO after %s", async (query) => {
 		configStore.setState({ feishuSSOEnabled: true });
 		searchParamsState.params = new URLSearchParams(query);
+		const assign = vi.fn();
+		const originalLocation = window.location;
+		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
+		try {
+			render(<LoginPage />, { wrapper: createWrapper() });
+			await act(async () => {});
+			expect(assign).not.toHaveBeenCalled();
+		} finally {
+			Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+		}
+	});
+
+	it("does not start silent SSO while an explicit logout redirect is in flight", async () => {
+		configStore.setState({ feishuSSOEnabled: true });
+		window.sessionStorage.setItem("multica_explicit_logout", "1");
 		const assign = vi.fn();
 		const originalLocation = window.location;
 		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
