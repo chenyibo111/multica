@@ -105,7 +105,7 @@
 
 **Files:** Modify `apps/web/app/(auth)/login/page.tsx`, `packages/views/auth/login-page.tsx`, `packages/core/config/`, web callback and logout wiring; add nearby UI tests and required translations.
 
-**Interfaces:** A Feishu button appears only when the server config enables SSO; web/desktop/CLI handoff parameters survive the OIDC round-trip; SSO users' logout starts Hydra end-session and returns to a signed-out page without auto-login.
+**Interfaces:** A Feishu button appears only when the server config enables SSO; web/desktop/CLI handoff parameters survive the OIDC round-trip; SSO users' logout starts Hydra end-session and returns to `http://localhost:8080/auth/feishu/logged-out`, which clears Multica cookies and redirects to a signed-out web page without auto-login.
 
 - [ ] Add UI tests for button visibility, safe redirect/handoff state, logout, and localized errors.
 - [ ] Run focused UI tests and confirm new cases fail.
