@@ -56,7 +56,7 @@ func (h *Handler) FeishuLoginStart(w http.ResponseWriter, r *http.Request) {
 	if cb := r.URL.Query().Get("cli_callback"); len(cb) <= 512 && safeCliCallback(cb) {
 		params.Set("cli_callback", cb)
 	}
-	if cliState := r.URL.Query().Get("cli_state"); len(cliState) <= 512 {
+	if cliState := r.URL.Query().Get("cli_state"); cliState != "" && len(cliState) <= 512 && params.Has("cli_callback") {
 		params.Set("cli_state", cliState)
 	}
 	claims := jwt.MapClaims{"state": state, "nonce": nonce, "verifier": verifier, "next": params.Encode(), "exp": time.Now().Add(10 * time.Minute).Unix()}
