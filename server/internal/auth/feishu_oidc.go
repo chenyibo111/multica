@@ -91,7 +91,7 @@ func PKCEChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(digest[:])
 }
 
-func (c FeishuOIDC) AuthorizationURL(state, nonce, challenge string) (string, error) {
+func (c FeishuOIDC) AuthorizationURL(state, nonce, challenge string, silent bool) (string, error) {
 	u, err := url.Parse(c.Config.AuthorizationURL)
 	if err != nil {
 		return "", err
@@ -105,6 +105,9 @@ func (c FeishuOIDC) AuthorizationURL(state, nonce, challenge string) (string, er
 	q.Set("nonce", nonce)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
+	if silent {
+		q.Set("prompt", "none")
+	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

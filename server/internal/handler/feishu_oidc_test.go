@@ -107,6 +107,50 @@ func TestFeishuCallbackRejectsMissingState(t *testing.T) {
 	}
 }
 
+func TestFeishuSilentStartRequestsPromptNone(t *testing.T) {
+	h := &Handler{FeishuOIDC: &auth.FeishuOIDC{Config: auth.FeishuOIDCConfig{AuthorizationURL: "http://localhost:4444/oauth2/auth", ClientID: "multica-web", RedirectURL: "http://localhost:8080/auth/feishu/callback"}}}
+	w := httptest.NewRecorder()
+	h.FeishuLoginStart(w, httptest.NewRequest(http.MethodGet, "/auth/feishu/start?silent=1&next=%2Finvitations", nil))
+	redirect, err := url.Parse(w.Header().Get("Location"))
+	if err != nil || w.Code != http.StatusFound || redirect.Query().Get("prompt") != "none" || redirect.Query().Get("code_challenge_method") != "S256" {
+		t.Fatalf("silent authorization malformed: status=%d url=%s err=%v", w.Code, redirect, err)
+	}
+}
+
+func TestFeishuSilentLoginRequiredReturnsToLoginWithoutRetry(t *testing.T) {
+	h := &Handler{FeishuOIDC: &auth.FeishuOIDC{Config: auth.FeishuOIDCConfig{AuthorizationURL: "http://localhost:4444/oauth2/auth", ClientID: "multica-web", RedirectURL: "http://localhost:8080/auth/feishu/callback", AppURL: "http://localhost:3000"}}}
+	start := httptest.NewRecorder()
+	h.FeishuLoginStart(start, httptest.NewRequest(http.MethodGet, "/auth/feishu/start?silent=1&next=%2Finvitations", nil))
+	redirect, err := url.Parse(start.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/auth/feishu/callback?error=login_required&state="+url.QueryEscape(redirect.Query().Get("state")), nil)
+	callback.AddCookie(start.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	h.FeishuLoginCallback(w, callback)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "http://localhost:3000/login?next=%2Finvitations&sso_attempted=1" {
+		t.Fatalf("silent login_required failed: status=%d location=%q body=%s", w.Code, w.Header().Get("Location"), w.Body.String())
+	}
+}
+
+func TestFeishuSilentConsentRequiredRetriesWithoutPrompt(t *testing.T) {
+	h := &Handler{FeishuOIDC: &auth.FeishuOIDC{Config: auth.FeishuOIDCConfig{AuthorizationURL: "http://localhost:4444/oauth2/auth", ClientID: "multica-web", RedirectURL: "http://localhost:8080/auth/feishu/callback", AppURL: "http://localhost:3000"}}}
+	start := httptest.NewRecorder()
+	h.FeishuLoginStart(start, httptest.NewRequest(http.MethodGet, "/auth/feishu/start?silent=1&next=%2Finvitations", nil))
+	redirect, err := url.Parse(start.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/auth/feishu/callback?error=consent_required&state="+url.QueryEscape(redirect.Query().Get("state")), nil)
+	callback.AddCookie(start.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	h.FeishuLoginCallback(w, callback)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/auth/feishu/start?next=%2Finvitations" {
+		t.Fatalf("consent retry failed: status=%d location=%q", w.Code, w.Header().Get("Location"))
+	}
+}
+
 func TestFeishuLogoutUsesRegisteredSameOriginReturn(t *testing.T) {
 	h := &Handler{FeishuOIDC: &auth.FeishuOIDC{Config: auth.FeishuOIDCConfig{Issuer: "http://localhost:4444/", RedirectURL: "http://localhost:8080/auth/feishu/callback", AppURL: "http://localhost:3000"}}}
 	r := httptest.NewRequest(http.MethodGet, "/auth/feishu/logout", nil)

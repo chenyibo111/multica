@@ -85,6 +85,7 @@ function LoginPageContent() {
   // Any `user` that appears afterwards came from the login form in this
   // session — not from an existing session found on arrival.
   const settledLoggedOutRef = useRef(false);
+	const autoFeishuStartedRef = useRef(false);
 
   // Already authenticated ON ARRIVAL — honor ?next= or fall back to first
   // workspace (or /onboarding if the user has none). Skip this entire path
@@ -166,7 +167,7 @@ function LoginPageContent() {
     .filter(Boolean)
     .join(",") || undefined;
 
-	const startFeishuLogin = useCallback(() => {
+	const startFeishuLogin = useCallback((silent = false) => {
 	  const params = new URLSearchParams();
 	  if (nextUrl) params.set("next", nextUrl);
 	  if (platform === "desktop") params.set("platform", "desktop");
@@ -174,11 +175,21 @@ function LoginPageContent() {
 	    params.set("cli_callback", cliCallbackRaw);
 	    if (cliState) params.set("cli_state", cliState);
 	  }
+	  if (silent) params.set("silent", "1");
 	  window.location.assign(`${api.getBaseUrl()}/auth/feishu/start?${params}`);
 	}, [nextUrl, platform, cliCallbackRaw, cliState]);
 	useEffect(() => {
-	  if (feishuSSOEnabled && searchParams.get("feishu") === "1") startFeishuLogin();
-	}, [feishuSSOEnabled, searchParams, startFeishuLogin]);
+	  if (!feishuSSOEnabled || isLoading || user || autoFeishuStartedRef.current) return;
+	  if (searchParams.get("feishu") === "1") {
+	    autoFeishuStartedRef.current = true;
+	    startFeishuLogin();
+	    return;
+	  }
+	  if (searchParams.get("signed_out") !== "1" && searchParams.get("sso_attempted") !== "1") {
+	    autoFeishuStartedRef.current = true;
+	    startFeishuLogin(true);
+	  }
+	}, [feishuSSOEnabled, isLoading, user, searchParams, startFeishuLogin]);
 
   // While the desktop handoff is in progress (or has produced a token/error),
   // render a dedicated screen instead of flashing the login form or redirecting
@@ -242,7 +253,7 @@ function LoginPageContent() {
             }
           : undefined
       }
-	  onFeishuLogin={feishuSSOEnabled ? startFeishuLogin : undefined}
+	  onFeishuLogin={feishuSSOEnabled ? () => startFeishuLogin() : undefined}
       cliCallback={
         cliCallbackRaw && validateCliCallback(cliCallbackRaw)
           ? { url: cliCallbackRaw, state: cliState }
