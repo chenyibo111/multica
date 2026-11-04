@@ -7,6 +7,7 @@ import { BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG } from "@multica/core/feature-flag
 import { renderWithI18n } from "../../test/i18n";
 
 const mockCreateMember = vi.hoisted(() => vi.fn());
+const mockListInviteCandidates = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 // The URL the settings router holds; `setSearch` stands in for navigation.
 const url = vi.hoisted(() => {
   const listeners = new Set<() => void>();
@@ -57,7 +58,7 @@ vi.mock("@multica/core/paths", () => ({
 }));
 vi.mock("@multica/core/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@multica/core/api")>()),
-  api: { createMember: mockCreateMember },
+  api: { createMember: mockCreateMember, listInviteCandidates: mockListInviteCandidates },
 }));
 vi.mock("@multica/core/auth", () => {
   const state = { user: { id: "user-1" } };
@@ -204,6 +205,7 @@ describe("MembersTab", () => {
     await user.click(screen.getByRole("button", { name: "Invite member" }));
     const dialog = await screen.findByRole("dialog", { name: "Invite member" });
     await user.type(within(dialog).getByRole("textbox", { name: "Email" }), "new@acme.dev");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Invite" })).toBeEnabled());
     await user.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     await waitFor(() =>
@@ -223,10 +225,31 @@ describe("MembersTab", () => {
     await user.click(screen.getByRole("button", { name: "Invite member" }));
     const dialog = await screen.findByRole("dialog", { name: "Invite member" });
     await user.type(within(dialog).getByRole("textbox", { name: "Email" }), "new@acme.dev");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Invite" })).toBeEnabled());
     await user.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     await waitFor(() => expect(mockCreateMember).toHaveBeenCalled());
     expect(screen.getByRole("dialog", { name: "Invite member" })).toBeInTheDocument();
+  });
+
+  it("requires an explicit account when the same email belongs to local and Feishu users", async () => {
+    mockListInviteCandidates.mockResolvedValueOnce([
+      { id: "local-1", name: "Local Ada", email: "same@acme.dev", auth_source: "local" },
+      { id: "feishu-1", name: "Feishu Ada", email: "same@acme.dev", auth_source: "feishu" },
+    ]);
+    mockCreateMember.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithI18n(<MembersTab />);
+    await user.click(screen.getByRole("button", { name: "Invite member" }));
+    const dialog = await screen.findByRole("dialog", { name: "Invite member" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Email" }), "same@acme.dev");
+    await within(dialog).findByText("Feishu Ada");
+    expect(within(dialog).getByRole("button", { name: "Invite" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("radio", { name: /Feishu Ada/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Invite" }));
+    await waitFor(() => expect(mockCreateMember).toHaveBeenCalledWith("ws-1", {
+      email: "same@acme.dev", role: "member", invitee_user_id: "feishu-1",
+    }));
   });
 
   it("links seat usage to billing when subscriptions are on", () => {

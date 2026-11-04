@@ -214,6 +214,7 @@ type RuntimeRecoveryNotifier interface {
 
 type Handler struct {
 	Queries                *db.Queries
+	FeishuOIDC             *auth.FeishuOIDC
 	ReadSelector           *dbreader.Selector
 	DB                     dbExecutor
 	TxStarter              txStarter

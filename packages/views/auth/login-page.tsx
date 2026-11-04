@@ -21,7 +21,7 @@ import {
 } from "@multica/ui/components/ui/input-otp";
 import { useAuthStore } from "@multica/core/auth";
 import { workspaceKeys } from "@multica/core/workspace/queries";
-import { api } from "@multica/core/api";
+import { api, errorCode } from "@multica/core/api";
 import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
 
@@ -55,6 +55,8 @@ interface LoginPageProps {
   onTokenObtained?: () => void;
   /** Override Google login handler (e.g. desktop opens browser externally). When provided, renders the Google button even if `google` config is omitted. */
   onGoogleLogin?: () => void;
+	/** Opens the configured Feishu SSO authorization flow. */
+	onFeishuLogin?: () => void;
   /** Slot rendered at the bottom of the sign-in card, below the
    *  Google button. The web shell uses it for a "Prefer the desktop
    *  app?" prompt; desktop omits it (a download prompt inside the app
@@ -99,6 +101,7 @@ export function LoginPage({
   cliCallback,
   onTokenObtained,
   onGoogleLogin,
+	onFeishuLogin,
   extra,
 }: LoginPageProps) {
   const { t } = useT("auth");
@@ -183,7 +186,9 @@ export function LoginPage({
         setCooldown(60);
       } catch (err) {
         setError(
-          err instanceof Error
+          errorCode(err) === "feishu_login_required"
+            ? t(($) => $.errors.feishu_login_required)
+            : err instanceof Error
             ? err.message
             : `${t(($) => $.errors.send_failed)} ${t(($) => $.errors.server_unreachable)}`,
         );
@@ -221,7 +226,9 @@ export function LoginPage({
         onSuccess();
       } catch (err) {
         setError(
-          err instanceof Error
+          errorCode(err) === "feishu_login_required"
+            ? t(($) => $.errors.feishu_login_required)
+            : err instanceof Error
             ? err.message
             : t(($) => $.errors.code_invalid),
         );
@@ -240,7 +247,9 @@ export function LoginPage({
       setCooldown(60);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t(($) => $.errors.resend_failed),
+        errorCode(err) === "feishu_login_required"
+          ? t(($) => $.errors.feishu_login_required)
+          : err instanceof Error ? err.message : t(($) => $.errors.resend_failed),
       );
     }
   };
@@ -485,6 +494,11 @@ export function LoginPage({
               {t(($) => $.signin.google)}
             </Button>
           )}
+		  {onFeishuLogin && (
+		    <Button type="button" variant="outline" className="w-full" size="lg" onClick={onFeishuLogin} disabled={loading}>
+		      {t(($) => $.signin.feishu)}
+		    </Button>
+		  )}
           {extra && <div className="w-full pt-1 text-center">{extra}</div>}
         </CardFooter>
       </Card>

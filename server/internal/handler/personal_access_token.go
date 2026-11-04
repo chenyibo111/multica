@@ -106,6 +106,7 @@ func (h *Handler) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Reque
 		TokenHash:   auth.HashToken(rawToken),
 		TokenPrefix: prefix,
 		ExpiresAt:   expiresAt,
+		SsoSid:      pgtype.Text{String: r.Header.Get("X-SSO-SID"), Valid: r.Header.Get("X-SSO-SID") != ""},
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create token")

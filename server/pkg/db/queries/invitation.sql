@@ -25,7 +25,7 @@ FROM workspace_invitation wi
 JOIN workspace w ON w.id = wi.workspace_id
 JOIN "user" u ON u.id = wi.inviter_id
 WHERE wi.status = 'pending'
-  AND (wi.invitee_user_id = $1 OR wi.invitee_email = $2)
+  AND (wi.invitee_user_id = $1 OR (wi.invitee_user_id IS NULL AND @allow_email_invites::boolean AND wi.invitee_email = $2))
   AND wi.expires_at > now()
 ORDER BY wi.created_at DESC;
 
@@ -47,13 +47,28 @@ WHERE id = $1 AND status = 'pending';
 
 -- name: GetPendingInvitationByEmail :one
 SELECT * FROM workspace_invitation
-WHERE workspace_id = $1 AND invitee_email = $2 AND status = 'pending' AND expires_at > now();
+WHERE workspace_id = $1 AND invitee_email = $2 AND invitee_user_id IS NULL AND status = 'pending' AND expires_at > now();
+
+-- name: GetPendingInvitationForTarget :one
+SELECT * FROM workspace_invitation
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at > now()
+  AND ((@invitee_user_id::uuid IS NOT NULL AND invitee_user_id = @invitee_user_id::uuid)
+       OR (@invitee_user_id::uuid IS NULL AND invitee_user_id IS NULL AND invitee_email = @invitee_email));
+
+-- name: GetPendingInvitationForUser :one
+SELECT * FROM workspace_invitation
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at > now()
+  AND (invitee_user_id = @user_id::uuid
+       OR (invitee_user_id IS NULL AND @allow_email_invites::boolean AND invitee_email = @email))
+ORDER BY CASE WHEN invitee_user_id = @user_id::uuid THEN 0 ELSE 1 END, created_at DESC
+LIMIT 1;
 
 -- name: HasPendingInvitationForEmail :one
 SELECT EXISTS (
     SELECT 1
     FROM workspace_invitation
     WHERE invitee_email = $1
+      AND invitee_user_id IS NULL
       AND status = 'pending'
       AND expires_at > now()
 );

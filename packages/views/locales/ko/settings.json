@@ -1056,6 +1056,11 @@
   },
   "members": {
     "invite_title": "멤버 초대",
+    "invite_account_label": "계정 선택",
+    "invite_account_local": "이메일 계정",
+    "invite_account_feishu": "Feishu 계정",
+    "invite_account_searching": "계정 검색 중…",
+    "invite_account_search_failed": "계정을 검색할 수 없습니다. 다시 시도하세요.",
     "invite_email_placeholder": "user@company.com",
     "invite_button": "초대",
     "inviting": "초대하는 중...",

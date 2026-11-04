@@ -14,6 +14,8 @@ import (
 const createFeishuUser = `-- name: CreateFeishuUser :one
 INSERT INTO "user" (name, email, auth_source, oidc_issuer, oidc_subject)
 VALUES ($1, $2, 'feishu', $3, $4)
+ON CONFLICT (oidc_issuer, oidc_subject) WHERE auth_source = 'feishu'
+DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, updated_at = now()
 RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
@@ -226,6 +228,17 @@ func (q *Queries) GetUsersByIDs(ctx context.Context, ids []pgtype.UUID) ([]GetUs
 	return items, nil
 }
 
+const hasFeishuUserByEmail = `-- name: HasFeishuUserByEmail :one
+SELECT EXISTS(SELECT 1 FROM "user" WHERE auth_source = 'feishu' AND email = $1)
+`
+
+func (q *Queries) HasFeishuUserByEmail(ctx context.Context, email string) (bool, error) {
+	row := q.db.QueryRow(ctx, hasFeishuUserByEmail, email)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const joinCloudWaitlist = `-- name: JoinCloudWaitlist :one
 UPDATE "user" SET
     cloud_waitlist_email = $2,
@@ -267,6 +280,48 @@ func (q *Queries) JoinCloudWaitlist(ctx context.Context, arg JoinCloudWaitlistPa
 		&i.OidcSubject,
 	)
 	return i, err
+}
+
+const listUsersByEmail = `-- name: ListUsersByEmail :many
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject FROM "user" WHERE email = $1 ORDER BY auth_source, name, id
+`
+
+func (q *Queries) ListUsersByEmail(ctx context.Context, email string) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsersByEmail, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.AvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OnboardedAt,
+			&i.OnboardingQuestionnaire,
+			&i.CloudWaitlistEmail,
+			&i.CloudWaitlistReason,
+			&i.StarterContentState,
+			&i.Language,
+			&i.ProfileDescription,
+			&i.Timezone,
+			&i.AuthSource,
+			&i.OidcIssuer,
+			&i.OidcSubject,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markUserOnboarded = `-- name: MarkUserOnboarded :one

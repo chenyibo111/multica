@@ -23,6 +23,7 @@ import type {
   SearchIndexChanges,
   UpdateMeRequest,
   CreateMemberRequest,
+	InviteCandidate,
   UpdateMemberRequest,
   ListIssuesParams,
   ListGroupedIssuesParams,
@@ -1020,8 +1021,8 @@ export class ApiClient {
     });
   }
 
-  async logout(): Promise<void> {
-    await this.fetch("/auth/logout", { method: "POST" });
+  async logout(): Promise<{logout_url?: string}> {
+	return this.fetch("/auth/logout", { method: "POST" });
   }
 
   async issueCliToken(): Promise<{ token: string }> {
@@ -3474,6 +3475,10 @@ export class ApiClient {
       body: JSON.stringify(data),
     });
   }
+
+	async listInviteCandidates(workspaceId: string, email: string): Promise<InviteCandidate[]> {
+	  return this.fetch(`/api/workspaces/${workspaceId}/invite-candidates?email=${encodeURIComponent(email)}`);
+	}
 
   async updateMember(workspaceId: string, memberId: string, data: UpdateMemberRequest): Promise<MemberWithUser> {
     return this.fetch(`/api/workspaces/${workspaceId}/members/${memberId}`, {

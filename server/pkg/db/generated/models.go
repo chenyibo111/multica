@@ -1254,6 +1254,7 @@ type PersonalAccessToken struct {
 	LastUsedAt  pgtype.Timestamptz `json:"last_used_at"`
 	Revoked     bool               `json:"revoked"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	SsoSid      pgtype.Text        `json:"sso_sid"`
 }
 
 type PinnedItem struct {

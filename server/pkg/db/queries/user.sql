@@ -10,6 +10,12 @@ WHERE email = $1 AND auth_source = 'local';
 SELECT * FROM "user"
 WHERE auth_source = 'feishu' AND oidc_issuer = $1 AND oidc_subject = $2;
 
+-- name: HasFeishuUserByEmail :one
+SELECT EXISTS(SELECT 1 FROM "user" WHERE auth_source = 'feishu' AND email = $1);
+
+-- name: ListUsersByEmail :many
+SELECT * FROM "user" WHERE email = $1 ORDER BY auth_source, name, id;
+
 -- name: GetUsersByIDs :many
 -- Batch lookup from the GLOBAL user table (not gated on membership, so departed
 -- members still render). Used to enrich attribution initiator / originator refs on
@@ -25,6 +31,8 @@ RETURNING *;
 -- name: CreateFeishuUser :one
 INSERT INTO "user" (name, email, auth_source, oidc_issuer, oidc_subject)
 VALUES ($1, $2, 'feishu', $3, $4)
+ON CONFLICT (oidc_issuer, oidc_subject) WHERE auth_source = 'feishu'
+DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, updated_at = now()
 RETURNING *;
 
 -- name: UpdateFeishuUserProfile :one

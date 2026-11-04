@@ -1342,6 +1342,11 @@
   },
   "members": {
     "invite_title": "メンバーを招待",
+    "invite_account_label": "アカウントを選択",
+    "invite_account_local": "メールアカウント",
+    "invite_account_feishu": "Feishuアカウント",
+    "invite_account_searching": "アカウントを検索中…",
+    "invite_account_search_failed": "アカウントを検索できませんでした。再試行してください。",
     "invite_email_placeholder": "user@company.com",
     "invite_button": "招待",
     "inviting": "招待中...",

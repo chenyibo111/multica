@@ -31,6 +31,22 @@ func rejectTemporarilyDisabledUser(w http.ResponseWriter, r *http.Request, userI
 	return true
 }
 
+func rejectRevokedSSO(w http.ResponseWriter, r *http.Request, sid string) bool {
+	if sid == "" {
+		return false
+	}
+	if err := auth.CheckSSOSession(r.Context(), sid); err != nil {
+		if errors.Is(err, auth.ErrSSORevoked) {
+			writeError(w, http.StatusUnauthorized, "SSO session revoked")
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "SSO session status unavailable")
+		}
+		return true
+	}
+	r.Header.Set("X-SSO-SID", sid)
+	return false
+}
+
 // Auth middleware validates JWT tokens or Personal Access Tokens.
 // Token sources (in priority order):
 //  1. Authorization: Bearer <token> header (PAT or JWT)
@@ -82,6 +98,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			// fixed in #4313.
 			r.Header.Del("X-Agent-ID")
 			r.Header.Del("X-Task-ID")
+			r.Header.Del("X-SSO-SID")
 
 			tokenString, fromCookie := extractToken(r)
 			if tokenString == "" {
@@ -214,11 +231,11 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				// last time we looked, and nothing has invalidated the
 				// entry since. Skip the DB SELECT and the last_used_at
 				// UPDATE — last_used_at is bumped once per TTL window.
-				if userID, ok := patCache.Get(r.Context(), hash); ok {
-					if rejectTemporarilyDisabledUser(w, r, userID, "", "pat_cache") {
+				if identity, ok := patCache.GetIdentity(r.Context(), hash); ok {
+					if rejectTemporarilyDisabledUser(w, r, identity.UserID, "", "pat_cache") || rejectRevokedSSO(w, r, identity.SSOSID) {
 						return
 					}
-					r.Header.Set("X-User-ID", userID)
+					r.Header.Set("X-User-ID", identity.UserID)
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -235,7 +252,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				}
 
 				userID := uuidToString(pat.UserID)
-				if rejectTemporarilyDisabledUser(w, r, userID, "", "pat") {
+				if rejectTemporarilyDisabledUser(w, r, userID, "", "pat") || rejectRevokedSSO(w, r, pat.SsoSid.String) {
 					return
 				}
 				r.Header.Set("X-User-ID", userID)
@@ -247,7 +264,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				if pat.ExpiresAt.Valid {
 					expiresAt = pat.ExpiresAt.Time
 				}
-				patCache.Set(r.Context(), hash, userID, auth.TTLForExpiry(time.Now(), expiresAt))
+				patCache.SetIdentity(r.Context(), hash, auth.PATIdentity{UserID: userID, SSOSID: pat.SsoSid.String}, auth.TTLForExpiry(time.Now(), expiresAt))
 
 				// Cache miss = TTL expired (or first use after revoke /
 				// process restart). Refresh last_used_at; subsequent hits
@@ -285,7 +302,8 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				return
 			}
 			email, _ := claims["email"].(string)
-			if rejectTemporarilyDisabledUser(w, r, sub, email, "jwt") {
+			ssoSID, _ := claims["sso_sid"].(string)
+			if rejectTemporarilyDisabledUser(w, r, sub, email, "jwt") || rejectRevokedSSO(w, r, ssoSID) {
 				return
 			}
 			r.Header.Set("X-User-ID", sub)

@@ -38,6 +38,7 @@ func (e SignupError) Error() string {
 
 var ErrSignupProhibited = SignupError{Message: "user registration is disabled on this self-hosted instance"}
 var ErrEmailNotAllowed = SignupError{Message: "email address or domain not allowed on this instance"}
+var ErrFeishuLoginRequired = errors.New("this email belongs to a Feishu account; use Feishu login")
 
 const (
 	googleLoginCodeAccountDisabled     = "account_disabled"
@@ -63,11 +64,12 @@ var supportedLanguages = map[string]struct{}{
 }
 
 type UserResponse struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Email     string  `json:"email"`
-	AvatarURL *string `json:"avatar_url"`
-	Language  *string `json:"language"`
+	ID         string  `json:"id"`
+	AuthSource string  `json:"auth_source"`
+	Name       string  `json:"name"`
+	Email      string  `json:"email"`
+	AvatarURL  *string `json:"avatar_url"`
+	Language   *string `json:"language"`
 	// Pinned IANA tz; nil = no preference (use browser-detected tz).
 	Timezone                *string         `json:"timezone"`
 	OnboardedAt             *string         `json:"onboarded_at"`
@@ -93,6 +95,7 @@ func (h *Handler) userToResponse(u db.User) UserResponse {
 	}
 	return UserResponse{
 		ID:                      uuidToString(u.ID),
+		AuthSource:              u.AuthSource,
 		Name:                    u.Name,
 		Email:                   u.Email,
 		AvatarURL:               h.resolveAvatarURLPtr(textToPtr(u.AvatarUrl)),
@@ -159,6 +162,13 @@ func isSixDigitCode(code string) bool {
 }
 
 func (h *Handler) issueJWT(user db.User) (string, error) {
+	return h.issueJWTWithSSO(user, "")
+}
+
+func (h *Handler) issueJWTWithSSO(user db.User, ssoSID string) (string, error) {
+	if (user.AuthSource == "feishu") != (ssoSID != "") {
+		return "", errors.New("Feishu accounts require a verified SSO session")
+	}
 	if auth.IsTemporarilyDisabledUser(uuidToString(user.ID), user.Email) {
 		return "", auth.ErrTemporarilyDisabledUser
 	}
@@ -171,14 +181,18 @@ func (h *Handler) issueJWT(user db.User) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"sub":   uuidToString(user.ID),
 		"email": user.Email,
 		"name":  user.Name,
 		"sid":   sid,
 		"exp":   time.Now().Add(auth.AuthTokenTTL()).Unix(),
 		"iat":   time.Now().Unix(),
-	})
+	}
+	if ssoSID != "" {
+		claims["sso_sid"] = ssoSID
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(auth.JWTSecret())
 }
 
@@ -195,6 +209,15 @@ func (h *Handler) findOrCreateUser(ctx context.Context, email string) (user db.U
 	isNew = isNotFound(err)
 	if err != nil && !isNew {
 		return db.User{}, false, err
+	}
+	if isNew {
+		feishuExists, lookupErr := h.Queries.HasFeishuUserByEmail(ctx, email)
+		if lookupErr != nil {
+			return db.User{}, false, lookupErr
+		}
+		if feishuExists {
+			return db.User{}, false, ErrFeishuLoginRequired
+		}
 	}
 	if !isNew && auth.IsTemporarilyDisabledUser(uuidToString(user.ID), user.Email) {
 		return db.User{}, false, auth.ErrTemporarilyDisabledUser
@@ -329,6 +352,15 @@ func (h *Handler) SendCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// User does not exist → treat as new user
+		feishuExists, lookupErr := h.Queries.HasFeishuUserByEmail(r.Context(), email)
+		if lookupErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to lookup user")
+			return
+		}
+		if feishuExists {
+			writeErrorCode(w, http.StatusForbidden, "feishu_login_required", ErrFeishuLoginRequired.Error())
+			return
+		}
 		isNewUser := true
 		if err := h.checkSignupAllowed(r.Context(), email, isNewUser); err != nil {
 			var signupErr SignupError
@@ -434,6 +466,10 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 
 	user, isNew, err := h.findOrCreateUser(r.Context(), email)
 	if err != nil {
+		if errors.Is(err, ErrFeishuLoginRequired) {
+			writeErrorCode(w, http.StatusForbidden, "feishu_login_required", ErrFeishuLoginRequired.Error())
+			return
+		}
 		if errors.Is(err, auth.ErrTemporarilyDisabledUser) {
 			writeError(w, http.StatusForbidden, auth.TemporarilyDisabledUserError)
 			return
@@ -530,6 +566,8 @@ type googleUserInfo struct {
 
 func writeGoogleLoginActionableError(w http.ResponseWriter, err error) bool {
 	switch {
+	case errors.Is(err, ErrFeishuLoginRequired):
+		writeErrorCode(w, http.StatusForbidden, "feishu_login_required", ErrFeishuLoginRequired.Error())
 	case errors.Is(err, auth.ErrTemporarilyDisabledUser):
 		writeErrorCode(w, http.StatusForbidden, googleLoginCodeAccountDisabled, auth.TemporarilyDisabledUserError)
 	case errors.Is(err, ErrSignupProhibited):
@@ -766,7 +804,7 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.issueJWTWithSSO(user, r.Header.Get("X-SSO-SID"))
 	if err != nil {
 		if errors.Is(err, auth.ErrTemporarilyDisabledUser) {
 			writeError(w, http.StatusForbidden, auth.TemporarilyDisabledUserError)
@@ -781,8 +819,30 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	ssoSession := false
+	if raw, _ := sessionTokenFromRequest(r); raw != "" {
+		if strings.HasPrefix(raw, "mul_") {
+			if pat, err := h.Queries.GetPersonalAccessTokenByHash(r.Context(), auth.HashToken(raw)); err == nil {
+				ssoSession = pat.SsoSid.Valid
+			}
+		} else if claims, err := auth.ParseSessionToken(raw); err == nil {
+			sid, _ := claims["sso_sid"].(string)
+			ssoSession = sid != ""
+		}
+	}
 	auth.ClearAuthCookies(w)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+	response := map[string]string{"message": "logged out"}
+	if ssoSession && h.FeishuOIDC != nil {
+		logoutURL, err := url.Parse(h.FeishuOIDC.Config.RedirectURL)
+		if err == nil {
+			logoutURL.Path = "/auth/feishu/logout"
+			logoutURL.RawQuery = ""
+			response["logout_url"] = logoutURL.String()
+		}
+	} else {
+		h.clearFeishuIDTokenCookie(w)
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {

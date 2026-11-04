@@ -9,6 +9,7 @@ describe("callbackErrorFrom", () => {
     "account_disabled",
     "signup_prohibited",
     "email_not_allowed",
+    "feishu_login_required",
     "google_account_no_email",
     "oauth_code_invalid",
   ] as const)("keeps the stable %s error kind for localization", (code) => {

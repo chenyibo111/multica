@@ -671,6 +671,14 @@ export interface UpdateMeRequest {
 export interface CreateMemberRequest {
   email: string;
   role?: MemberRole;
+	invitee_user_id?: string;
+}
+
+export interface InviteCandidate {
+	id: string;
+	name: string;
+	email: string;
+	auth_source: "local" | "feishu";
 }
 
 export interface UpdateMemberRequest {

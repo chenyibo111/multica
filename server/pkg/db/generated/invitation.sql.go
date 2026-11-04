@@ -178,7 +178,7 @@ func (q *Queries) GetInvitation(ctx context.Context, id pgtype.UUID) (WorkspaceI
 
 const getPendingInvitationByEmail = `-- name: GetPendingInvitationByEmail :one
 SELECT id, workspace_id, inviter_id, invitee_email, invitee_user_id, role, status, created_at, updated_at, expires_at FROM workspace_invitation
-WHERE workspace_id = $1 AND invitee_email = $2 AND status = 'pending' AND expires_at > now()
+WHERE workspace_id = $1 AND invitee_email = $2 AND invitee_user_id IS NULL AND status = 'pending' AND expires_at > now()
 `
 
 type GetPendingInvitationByEmailParams struct {
@@ -204,11 +204,82 @@ func (q *Queries) GetPendingInvitationByEmail(ctx context.Context, arg GetPendin
 	return i, err
 }
 
+const getPendingInvitationForTarget = `-- name: GetPendingInvitationForTarget :one
+SELECT id, workspace_id, inviter_id, invitee_email, invitee_user_id, role, status, created_at, updated_at, expires_at FROM workspace_invitation
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at > now()
+  AND (($2::uuid IS NOT NULL AND invitee_user_id = $2::uuid)
+       OR ($2::uuid IS NULL AND invitee_user_id IS NULL AND invitee_email = $3))
+`
+
+type GetPendingInvitationForTargetParams struct {
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	InviteeUserID pgtype.UUID `json:"invitee_user_id"`
+	InviteeEmail  string      `json:"invitee_email"`
+}
+
+func (q *Queries) GetPendingInvitationForTarget(ctx context.Context, arg GetPendingInvitationForTargetParams) (WorkspaceInvitation, error) {
+	row := q.db.QueryRow(ctx, getPendingInvitationForTarget, arg.WorkspaceID, arg.InviteeUserID, arg.InviteeEmail)
+	var i WorkspaceInvitation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.InviterID,
+		&i.InviteeEmail,
+		&i.InviteeUserID,
+		&i.Role,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const getPendingInvitationForUser = `-- name: GetPendingInvitationForUser :one
+SELECT id, workspace_id, inviter_id, invitee_email, invitee_user_id, role, status, created_at, updated_at, expires_at FROM workspace_invitation
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at > now()
+  AND (invitee_user_id = $2::uuid
+       OR (invitee_user_id IS NULL AND $3::boolean AND invitee_email = $4))
+ORDER BY CASE WHEN invitee_user_id = $2::uuid THEN 0 ELSE 1 END, created_at DESC
+LIMIT 1
+`
+
+type GetPendingInvitationForUserParams struct {
+	WorkspaceID       pgtype.UUID `json:"workspace_id"`
+	UserID            pgtype.UUID `json:"user_id"`
+	AllowEmailInvites bool        `json:"allow_email_invites"`
+	Email             string      `json:"email"`
+}
+
+func (q *Queries) GetPendingInvitationForUser(ctx context.Context, arg GetPendingInvitationForUserParams) (WorkspaceInvitation, error) {
+	row := q.db.QueryRow(ctx, getPendingInvitationForUser,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.AllowEmailInvites,
+		arg.Email,
+	)
+	var i WorkspaceInvitation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.InviterID,
+		&i.InviteeEmail,
+		&i.InviteeUserID,
+		&i.Role,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const hasPendingInvitationForEmail = `-- name: HasPendingInvitationForEmail :one
 SELECT EXISTS (
     SELECT 1
     FROM workspace_invitation
     WHERE invitee_email = $1
+      AND invitee_user_id IS NULL
       AND status = 'pending'
       AND expires_at > now()
 )
@@ -288,14 +359,15 @@ FROM workspace_invitation wi
 JOIN workspace w ON w.id = wi.workspace_id
 JOIN "user" u ON u.id = wi.inviter_id
 WHERE wi.status = 'pending'
-  AND (wi.invitee_user_id = $1 OR wi.invitee_email = $2)
+  AND (wi.invitee_user_id = $1 OR (wi.invitee_user_id IS NULL AND $3::boolean AND wi.invitee_email = $2))
   AND wi.expires_at > now()
 ORDER BY wi.created_at DESC
 `
 
 type ListPendingInvitationsForUserParams struct {
-	InviteeUserID pgtype.UUID `json:"invitee_user_id"`
-	InviteeEmail  string      `json:"invitee_email"`
+	InviteeUserID     pgtype.UUID `json:"invitee_user_id"`
+	InviteeEmail      string      `json:"invitee_email"`
+	AllowEmailInvites bool        `json:"allow_email_invites"`
 }
 
 type ListPendingInvitationsForUserRow struct {
@@ -315,7 +387,7 @@ type ListPendingInvitationsForUserRow struct {
 }
 
 func (q *Queries) ListPendingInvitationsForUser(ctx context.Context, arg ListPendingInvitationsForUserParams) ([]ListPendingInvitationsForUserRow, error) {
-	rows, err := q.db.Query(ctx, listPendingInvitationsForUser, arg.InviteeUserID, arg.InviteeEmail)
+	rows, err := q.db.Query(ctx, listPendingInvitationsForUser, arg.InviteeUserID, arg.InviteeEmail, arg.AllowEmailInvites)
 	if err != nil {
 		return nil, err
 	}

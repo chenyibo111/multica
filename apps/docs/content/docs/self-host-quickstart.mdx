@@ -65,6 +65,39 @@ Running `make selfhost` again reuses the existing `.env` and volumes; it does no
 </Accordion>
 </Accordions>
 
+## Optional Feishu SSO for local development
+
+This integration creates a separate Multica account for each verified Feishu
+member. A member can share an email address with an existing local account;
+the two accounts remain independent. Feishu accounts use Feishu login only.
+
+Start the companion provider from `D:/AI/feishu-sso` with
+`docker compose up -d --build` and run `scripts/register-clients.ps1` to
+register the `multica-web` public PKCE client in Hydra. Copy
+`FEISHU_APP_ID`, `FEISHU_TENANT_KEY`, and `SSO_SERVICE_KEY` from that project's
+ignored `.env` into Multica's ignored `.env`. The service key must match.
+
+From `D:/AI/multica`, build and start this branch with all three Compose files:
+
+```powershell
+docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.yml -f docker-compose.feishu-sso.yml up -d --build
+```
+
+The opt-in Compose file joins the backend to `feishu-sso_default`, advertises
+Hydra's browser issuer as `http://localhost:4444/`, and dials Hydra and SSO by
+their Docker service names. It gives Multica's database a distinct network
+alias so the two projects' `postgres` service names cannot collide. The
+frontend displays the Feishu button only when the backend's OIDC configuration
+is complete. Keep the public URLs, registered
+client redirect URIs, and frontend origin aligned if you change local ports or
+deploy behind a reverse proxy.
+
+Multica JWTs and PATs issued from a Feishu session carry the SSO session ID.
+Each protected request checks the SSO service, including cached PAT requests:
+revoked sessions get 401 and an unavailable SSO service gets 503. The browser
+logout continues through Hydra's end-session endpoint and returns to Multica's
+same-origin `/auth/feishu/logged-out` callback.
+
 <Callout type="info">
 `make selfhost` pulls published images and does not build the code in your checkout. To test local source, use `make selfhost-build`.
 
