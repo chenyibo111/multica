@@ -11,10 +11,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createFeishuUser = `-- name: CreateFeishuUser :one
+INSERT INTO "user" (name, email, auth_source, oidc_issuer, oidc_subject)
+VALUES ($1, $2, 'feishu', $3, $4)
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
+`
+
+type CreateFeishuUserParams struct {
+	Name        string      `json:"name"`
+	Email       string      `json:"email"`
+	OidcIssuer  pgtype.Text `json:"oidc_issuer"`
+	OidcSubject pgtype.Text `json:"oidc_subject"`
+}
+
+func (q *Queries) CreateFeishuUser(ctx context.Context, arg CreateFeishuUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, createFeishuUser,
+		arg.Name,
+		arg.Email,
+		arg.OidcIssuer,
+		arg.OidcSubject,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OnboardedAt,
+		&i.OnboardingQuestionnaire,
+		&i.CloudWaitlistEmail,
+		&i.CloudWaitlistReason,
+		&i.StarterContentState,
+		&i.Language,
+		&i.ProfileDescription,
+		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO "user" (name, email, avatar_url)
 VALUES ($1, $2, $3)
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
 type CreateUserParams struct {
@@ -41,12 +84,15 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone FROM "user"
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject FROM "user"
 WHERE id = $1
 `
 
@@ -68,13 +114,16 @@ func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (User, error) {
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone FROM "user"
-WHERE email = $1
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject FROM "user"
+WHERE email = $1 AND auth_source = 'local'
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -95,6 +144,44 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
+	)
+	return i, err
+}
+
+const getUserByOIDC = `-- name: GetUserByOIDC :one
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject FROM "user"
+WHERE auth_source = 'feishu' AND oidc_issuer = $1 AND oidc_subject = $2
+`
+
+type GetUserByOIDCParams struct {
+	OidcIssuer  pgtype.Text `json:"oidc_issuer"`
+	OidcSubject pgtype.Text `json:"oidc_subject"`
+}
+
+func (q *Queries) GetUserByOIDC(ctx context.Context, arg GetUserByOIDCParams) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByOIDC, arg.OidcIssuer, arg.OidcSubject)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OnboardedAt,
+		&i.OnboardingQuestionnaire,
+		&i.CloudWaitlistEmail,
+		&i.CloudWaitlistReason,
+		&i.StarterContentState,
+		&i.Language,
+		&i.ProfileDescription,
+		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
@@ -145,7 +232,7 @@ UPDATE "user" SET
     cloud_waitlist_reason = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
 type JoinCloudWaitlistParams struct {
@@ -175,6 +262,9 @@ func (q *Queries) JoinCloudWaitlist(ctx context.Context, arg JoinCloudWaitlistPa
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
@@ -184,7 +274,7 @@ UPDATE "user" SET
     onboarded_at = COALESCE(onboarded_at, now()),
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
 func (q *Queries) MarkUserOnboarded(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -205,6 +295,9 @@ func (q *Queries) MarkUserOnboarded(ctx context.Context, id pgtype.UUID) (User, 
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
@@ -214,7 +307,7 @@ UPDATE "user" SET
     onboarding_questionnaire = COALESCE($1, onboarding_questionnaire),
     updated_at = now()
 WHERE id = $2
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
 type PatchUserOnboardingParams struct {
@@ -244,6 +337,49 @@ func (q *Queries) PatchUserOnboarding(ctx context.Context, arg PatchUserOnboardi
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
+	)
+	return i, err
+}
+
+const updateFeishuUserProfile = `-- name: UpdateFeishuUserProfile :one
+UPDATE "user" SET
+    name = COALESCE(NULLIF($2, ''), name),
+    email = $3,
+    updated_at = now()
+WHERE id = $1 AND auth_source = 'feishu'
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
+`
+
+type UpdateFeishuUserProfileParams struct {
+	ID      pgtype.UUID `json:"id"`
+	Column2 interface{} `json:"column_2"`
+	Email   string      `json:"email"`
+}
+
+func (q *Queries) UpdateFeishuUserProfile(ctx context.Context, arg UpdateFeishuUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateFeishuUserProfile, arg.ID, arg.Column2, arg.Email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OnboardedAt,
+		&i.OnboardingQuestionnaire,
+		&i.CloudWaitlistEmail,
+		&i.CloudWaitlistReason,
+		&i.StarterContentState,
+		&i.Language,
+		&i.ProfileDescription,
+		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }
@@ -261,7 +397,7 @@ UPDATE "user" SET
     END,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, auth_source, oidc_issuer, oidc_subject
 `
 
 type UpdateUserParams struct {
@@ -310,6 +446,9 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Language,
 		&i.ProfileDescription,
 		&i.Timezone,
+		&i.AuthSource,
+		&i.OidcIssuer,
+		&i.OidcSubject,
 	)
 	return i, err
 }

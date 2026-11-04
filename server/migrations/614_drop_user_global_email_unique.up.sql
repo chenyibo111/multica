@@ -1,0 +1,1 @@
+ALTER TABLE "user" DROP CONSTRAINT IF EXISTS user_email_key;
