@@ -59,13 +59,14 @@ func (h *Handler) FeishuLoginStart(w http.ResponseWriter, r *http.Request) {
 	if cliState := r.URL.Query().Get("cli_state"); cliState != "" && len(cliState) <= 512 && params.Has("cli_callback") {
 		params.Set("cli_state", cliState)
 	}
-	claims := jwt.MapClaims{"state": state, "nonce": nonce, "verifier": verifier, "next": params.Encode(), "exp": time.Now().Add(10 * time.Minute).Unix()}
+	silent := r.URL.Query().Get("silent") == "1"
+	claims := jwt.MapClaims{"state": state, "nonce": nonce, "verifier": verifier, "next": params.Encode(), "silent": silent, "exp": time.Now().Add(10 * time.Minute).Unix()}
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(auth.JWTSecret())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start Feishu login")
 		return
 	}
-	redirect, err := h.FeishuOIDC.AuthorizationURL(state, nonce, auth.PKCEChallenge(verifier))
+	redirect, err := h.FeishuOIDC.AuthorizationURL(state, nonce, auth.PKCEChallenge(verifier), silent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start Feishu login")
 		return
@@ -105,6 +106,29 @@ func (h *Handler) FeishuLoginCallback(w http.ResponseWriter, r *http.Request) {
 	token, err := jwt.ParseWithClaims(cookie.Value, claims, func(token *jwt.Token) (any, error) { return auth.JWTSecret(), nil }, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
 	if err != nil || !token.Valid || r.URL.Query().Get("state") == "" || r.URL.Query().Get("state") != claims["state"] {
 		writeError(w, http.StatusBadRequest, "invalid Feishu login state")
+		return
+	}
+	if oidcError := r.URL.Query().Get("error"); oidcError != "" {
+		silent, _ := claims["silent"].(bool)
+		if silent && oidcError == "consent_required" {
+			params, _ := claims["next"].(string)
+			target := "/auth/feishu/start"
+			if params != "" {
+				target += "?" + params
+			}
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
+		if silent && (oidcError == "login_required" || oidcError == "interaction_required" || oidcError == "account_selection_required") {
+			params, _ := claims["next"].(string)
+			if params != "" {
+				params += "&"
+			}
+			params += "sso_attempted=1"
+			http.Redirect(w, r, h.FeishuOIDC.Config.AppURL+"/login?"+params, http.StatusFound)
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "Feishu login failed")
 		return
 	}
 	nonce, _ := claims["nonce"].(string)

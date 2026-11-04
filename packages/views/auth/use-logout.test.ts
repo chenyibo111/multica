@@ -43,6 +43,7 @@ describe("useLogout", () => {
   beforeEach(() => {
     calls.length = 0;
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mockClearClientSessionData.mockImplementation(() => calls.push("clear"));
     mockAuthLogout.mockImplementation(() => calls.push("authLogout"));
     mockPush.mockImplementation(() => calls.push("push"));
@@ -52,11 +53,15 @@ describe("useLogout", () => {
   // shells' login redirect, and navigating first would leave the caller on a
   // workspace URL that renders null.
   it("erases client state, then drops auth, then navigates to /login", () => {
+    mockAuthLogout.mockImplementation(() => {
+      expect(window.sessionStorage.getItem("multica_explicit_logout")).toBe("1");
+      calls.push("authLogout");
+    });
     const { result } = renderHook(() => useLogout());
     result.current();
 
     expect(calls).toEqual(["clear", "authLogout", "push"]);
     expect(mockClearClientSessionData).toHaveBeenCalledWith(queryClient);
-    expect(mockPush).toHaveBeenCalledWith("/login");
+    expect(mockPush).toHaveBeenCalledWith("/login?signed_out=1");
   });
 });

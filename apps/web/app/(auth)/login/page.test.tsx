@@ -6,6 +6,7 @@ import enCommon from "@multica/views/locales/en/common.json";
 import enAuth from "@multica/views/locales/en/auth.json";
 import enSettings from "@multica/views/locales/en/settings.json";
 import type { ReactNode } from "react";
+import { configStore } from "@multica/core/config";
 
 const TEST_RESOURCES = {
   en: { common: enCommon, auth: enAuth, settings: enSettings },
@@ -84,6 +85,7 @@ vi.mock("@multica/core/api", () => ({
     setToken: vi.fn(),
     getMe: vi.fn(),
     issueCliToken: mockIssueCliToken,
+	getBaseUrl: () => "http://localhost:8080",
   },
 }));
 
@@ -92,12 +94,59 @@ import LoginPage from "./page";
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     searchParamsState.params = new URLSearchParams();
     authStateRef.state.user = null;
     authStateRef.state.isLoading = false;
     mockListWorkspaces.mockResolvedValue([]);
     mockListMyInvitations.mockResolvedValue([]);
+	configStore.setState({ feishuSSOEnabled: false });
   });
+
+	it("tries silent Feishu SSO once for a signed-out visitor and preserves the return path", async () => {
+		configStore.setState({ feishuSSOEnabled: true });
+		searchParamsState.params = new URLSearchParams({ next: "/invitations" });
+		const assign = vi.fn();
+		const originalLocation = window.location;
+		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
+		try {
+			render(<LoginPage />, { wrapper: createWrapper() });
+			await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+			expect(assign.mock.calls[0]?.[0]).toBe("http://localhost:8080/auth/feishu/start?next=%2Finvitations&silent=1");
+		} finally {
+			Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+		}
+	});
+
+	it.each(["signed_out=1", "sso_attempted=1"])("does not retry silent SSO after %s", async (query) => {
+		configStore.setState({ feishuSSOEnabled: true });
+		searchParamsState.params = new URLSearchParams(query);
+		const assign = vi.fn();
+		const originalLocation = window.location;
+		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
+		try {
+			render(<LoginPage />, { wrapper: createWrapper() });
+			await act(async () => {});
+			expect(assign).not.toHaveBeenCalled();
+		} finally {
+			Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+		}
+	});
+
+	it("does not start silent SSO while an explicit logout redirect is in flight", async () => {
+		configStore.setState({ feishuSSOEnabled: true });
+		window.sessionStorage.setItem("multica_explicit_logout", "1");
+		const assign = vi.fn();
+		const originalLocation = window.location;
+		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
+		try {
+			render(<LoginPage />, { wrapper: createWrapper() });
+			await act(async () => {});
+			expect(assign).not.toHaveBeenCalled();
+		} finally {
+			Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+		}
+	});
 
   // Shared LoginPage behavior is canonical in
   // packages/views/auth/login-page.test.tsx. This wrapper suite only owns web
