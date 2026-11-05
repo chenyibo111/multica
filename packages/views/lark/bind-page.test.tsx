@@ -10,7 +10,7 @@ const TEST_RESOURCES = { en: { common: enCommon } };
 // Hoisted mutable auth state — lets individual tests set different scenarios
 // ---------------------------------------------------------------------------
 const mockAuthState = vi.hoisted(() => ({
-  user: null as { id: string; email: string } | null,
+  user: null as { id: string; name: string; email: string } | null,
   isLoading: false,
 }));
 
@@ -76,14 +76,18 @@ describe("LarkBindPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("starts redemption immediately when user is already logged in", async () => {
+  it("shows the signed-in account and waits for explicit confirmation", async () => {
     mockAuthState.isLoading = false;
-    mockAuthState.user = { id: "u1", email: "u@example.com" };
+    mockAuthState.user = { id: "u1", name: "Alice", email: "u@example.com" };
     mockRedeemToken.mockResolvedValue({
       workspace_id: "ws1",
       installation_id: "inst1",
     });
     renderPage("tok123");
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("u@example.com")).toBeInTheDocument();
+    expect(mockRedeemToken).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /bind this account/i }));
     await waitFor(() => {
       expect(mockRedeemToken).toHaveBeenCalledWith("tok123");
     });
@@ -91,12 +95,13 @@ describe("LarkBindPage", () => {
 
   it("shows success state after successful redemption", async () => {
     mockAuthState.isLoading = false;
-    mockAuthState.user = { id: "u1", email: "u@example.com" };
+    mockAuthState.user = { id: "u1", name: "Alice", email: "u@example.com" };
     mockRedeemToken.mockResolvedValue({
       workspace_id: "ws1",
       installation_id: "inst1",
     });
     renderPage("tok123");
+    fireEvent.click(screen.getByRole("button", { name: /bind this account/i }));
     await waitFor(() => {
       expect(screen.getByText(/you're bound/i)).toBeInTheDocument();
     });
