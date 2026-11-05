@@ -312,6 +312,14 @@ type SendTextParams struct {
 	ReplyTarget ReplyTarget
 }
 
+// SendDirectTextParams addresses a member through this installation's open_id.
+// The open_id must come from a verified channel_user_binding for this Bot.
+type SendDirectTextParams struct {
+	InstallationID InstallationCredentials
+	OpenID         OpenID
+	Text           string
+}
+
 // SendMarkdownCardParams is the input shape for posting an agent
 // reply as a Lark interactive card with a markdown body element.
 // Markdown is forwarded to Lark verbatim; the client builds the

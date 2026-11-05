@@ -628,6 +628,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					h.DeclareChannelFileDelivery(string(channel.TypeFeishu))
 				}
 				patcher.Register(bus)
+				if directSender, ok := larkClient.(lark.DirectTextSender); ok {
+					lark.NewInboxNotifier(cs, installSvc, directSender, appURLFromEnv(), slog.Default()).Register(bus)
+				}
 
 				// Typing indicator: shows a "processing" reaction on the user's
 				// message while the agent is working. Terminal cleanup has its own
