@@ -185,13 +185,12 @@ function LoginPageContent() {
 	    startFeishuLogin();
 	    return;
 	  }
-	  let explicitLogout = false;
 	  try {
-	    explicitLogout = window.sessionStorage.getItem("multica_explicit_logout") === "1";
+	    window.sessionStorage.removeItem("multica_explicit_logout");
 	  } catch {
-	    // The signed_out URL still guards the normal logout redirect.
+	    // Browser storage may be unavailable; the URL still controls this attempt.
 	  }
-	  if (!explicitLogout && searchParams.get("signed_out") !== "1" && searchParams.get("sso_attempted") !== "1") {
+	  if (searchParams.get("signed_out") !== "1" && searchParams.get("sso_attempted") !== "1") {
 	    autoFeishuStartedRef.current = true;
 	    startFeishuLogin(true);
 	  }

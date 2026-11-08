@@ -389,6 +389,18 @@ describe("AuthInitializer recovery", () => {
     expect(onLogout).not.toHaveBeenCalled();
   });
 
+  it("drops a revoked Feishu browser session when its tab regains focus", async () => {
+    const getMe = vi.fn()
+      .mockResolvedValueOnce({ ...fakeUser, auth_source: "feishu" })
+      .mockRejectedValueOnce(new ApiError("SSO session revoked", 401, "Unauthorized"));
+    renderInitializer({ api: makeApi({ getMe }), cookieAuth: true, platform: "web" });
+    await waitFor(() => expect(useAuthStore.getState().status).toBe("authenticated"));
+
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(useAuthStore.getState().status).toBe("unauthenticated"));
+    expect(getMe).toHaveBeenCalledTimes(2);
+  });
+
   it("reloads app config after auth recovers from a transient failure", async () => {
     const getConfig = vi
       .fn()

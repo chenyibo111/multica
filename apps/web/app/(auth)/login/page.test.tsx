@@ -133,7 +133,7 @@ describe("LoginPage", () => {
 		}
 	});
 
-	it("does not start silent SSO while an explicit logout redirect is in flight", async () => {
+	it("does not let a stale logout marker block silent SSO on a clean login URL", async () => {
 		configStore.setState({ feishuSSOEnabled: true });
 		window.sessionStorage.setItem("multica_explicit_logout", "1");
 		const assign = vi.fn();
@@ -141,8 +141,9 @@ describe("LoginPage", () => {
 		Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, assign } });
 		try {
 			render(<LoginPage />, { wrapper: createWrapper() });
-			await act(async () => {});
-			expect(assign).not.toHaveBeenCalled();
+			await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+			expect(assign.mock.calls[0]?.[0]).toBe("http://localhost:8080/auth/feishu/start?silent=1");
+			expect(window.sessionStorage.getItem("multica_explicit_logout")).toBeNull();
 		} finally {
 			Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
 		}

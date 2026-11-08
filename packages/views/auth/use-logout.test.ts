@@ -54,7 +54,7 @@ describe("useLogout", () => {
   // workspace URL that renders null.
   it("erases client state, then drops auth, then navigates to /login", () => {
     mockAuthLogout.mockImplementation(() => {
-      expect(window.sessionStorage.getItem("multica_explicit_logout")).toBe("1");
+      expect(window.sessionStorage.getItem("multica_explicit_logout")).toBeNull();
       calls.push("authLogout");
     });
     const { result } = renderHook(() => useLogout());
@@ -63,5 +63,15 @@ describe("useLogout", () => {
     expect(calls).toEqual(["clear", "authLogout", "push"]);
     expect(mockClearClientSessionData).toHaveBeenCalledWith(queryClient);
     expect(mockPush).toHaveBeenCalledWith("/login?signed_out=1");
+  });
+
+  it("does not interrupt the provider redirect during SSO logout", () => {
+    mockAuthLogout.mockReturnValue(true);
+    const { result } = renderHook(() => useLogout());
+    result.current();
+
+    expect(mockClearClientSessionData).toHaveBeenCalledWith(queryClient);
+    expect(mockAuthLogout).toHaveBeenCalledOnce();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
