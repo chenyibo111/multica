@@ -10,6 +10,7 @@ import { useT } from "../i18n";
 
 type RedeemState =
   | { kind: "idle" }
+  | { kind: "ready" }
   | { kind: "redeeming" }
   | { kind: "done"; workspaceId: string; installationId: string }
   | { kind: "needs-auth" }
@@ -17,9 +18,9 @@ type RedeemState =
 
 // LarkBindPage is the destination the Bot's "you need to bind" reply
 // card points at. The user lands here logged out OR logged in; we
-// require auth before redeeming because the redeemer's Multica
-// identity is taken from the session (the token alone never proves
-// who is binding — see lark.BindingTokenService.RedeemAndBind).
+// require auth and an explicit account confirmation before redeeming
+// because the redeemer's Multica identity is taken from the session
+// (the token alone never proves who is binding).
 //
 // The token comes in via `?token=<raw>`. We POST it to
 // /api/lark/binding/redeem; the backend returns 410 (invalid/expired),
@@ -42,24 +43,27 @@ export function LarkBindPage({ token }: { token: string | null }) {
       setState({ kind: "needs-auth" });
       return;
     }
-    if (state.kind !== "idle" && state.kind !== "needs-auth") return;
+    setState((current) =>
+      current.kind === "idle" || current.kind === "needs-auth"
+        ? { kind: "ready" }
+        : current,
+    );
+  }, [token, user, isAuthLoading]);
+
+  async function confirmBinding() {
+    if (!token || !user || state.kind !== "ready") return;
     setState({ kind: "redeeming" });
-    (async () => {
-      try {
-        const resp = await api.redeemLarkBindingToken(token);
-        setState({
-          kind: "done",
-          workspaceId: resp.workspace_id,
-          installationId: resp.installation_id,
-        });
-      } catch (e) {
-        setState({
-          kind: "error",
-          reason: redemptionFailureReason(e),
-        });
-      }
-    })();
-  }, [token, user, isAuthLoading, state.kind]);
+    try {
+      const resp = await api.redeemLarkBindingToken(token);
+      setState({
+        kind: "done",
+        workspaceId: resp.workspace_id,
+        installationId: resp.installation_id,
+      });
+    } catch (e) {
+      setState({ kind: "error", reason: redemptionFailureReason(e) });
+    }
+  }
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-6">
@@ -85,6 +89,22 @@ export function LarkBindPage({ token }: { token: string | null }) {
                 nativeButton={false}
               >
                 {t(($) => $.lark_bind.sign_in)}
+              </Button>
+            </>
+          ) : state.kind === "ready" ? (
+            <>
+              <p className="text-body text-muted-foreground">
+                {t(($) => $.lark_bind.current_account)}
+              </p>
+              <div className="min-w-0">
+                <p className="text-body font-medium break-words">{user?.name}</p>
+                <p className="text-caption text-muted-foreground break-all">{user?.email}</p>
+              </div>
+              <p className="text-caption text-muted-foreground">
+                {t(($) => $.lark_bind.wrong_account)}
+              </p>
+              <Button type="button" size="sm" onClick={confirmBinding}>
+                {t(($) => $.lark_bind.confirm_account)}
               </Button>
             </>
           ) : state.kind === "done" ? (

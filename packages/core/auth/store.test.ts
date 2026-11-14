@@ -62,6 +62,21 @@ describe("authStore", () => {
     expect(store.getState().expired).toBe(false);
   });
 
+  it("starts the provider logout before leaving a Feishu browser session", () => {
+    const api = Object.assign(makeApi(), { getBaseUrl: () => "http://localhost:8080", logout: vi.fn() });
+    const store = createAuthStore({ api, storage: makeStorage(), cookieAuth: true });
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { assign } });
+    try {
+      store.setState({ user: { ...fakeUser, auth_source: "feishu" }, status: "authenticated", isLoading: false });
+      expect(store.getState().logout()).toBe(true);
+      expect(assign).toHaveBeenCalledWith("http://localhost:8080/auth/feishu/logout");
+      expect(api.logout).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("ends the session when the server rejects the credential", () => {
     const storage = makeStorage({ multica_token: "t" });
     const api = makeApi();

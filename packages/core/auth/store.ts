@@ -43,7 +43,7 @@ export interface AuthState {
   verifyCode: (email: string, code: string) => Promise<User>;
   loginWithGoogle: (code: string, redirectUri: string) => Promise<User>;
   loginWithToken: (token: string) => Promise<User>;
-  logout: () => void;
+  logout: () => boolean;
   sessionExpired: () => void;
   setUser: (user: User) => void;
   refreshMe: () => Promise<void>;
@@ -108,8 +108,11 @@ export function createAuthStore(options: AuthStoreOptions) {
     },
 
     logout: () => {
-	  if (cookieAuth || get().user?.auth_source === "feishu") {
-	    // Feishu logout continues in the browser that owns the Hydra session.
+	  const browserSSO =
+	    get().user?.auth_source === "feishu" &&
+	    typeof window !== "undefined" &&
+	    !(window as unknown as { desktopAPI?: unknown }).desktopAPI;
+	  if (!browserSSO && (cookieAuth || get().user?.auth_source === "feishu")) {
 	    void api.logout().then((result) => {
 	      const logoutUrl = result?.logout_url;
 	      if (!logoutUrl || typeof window === "undefined") return;
@@ -129,6 +132,8 @@ export function createAuthStore(options: AuthStoreOptions) {
         status: "unauthenticated",
         expired: false,
       });
+      if (browserSSO) window.location.assign(`${api.getBaseUrl()}/auth/feishu/logout`);
+      return browserSSO;
     },
 
     /**

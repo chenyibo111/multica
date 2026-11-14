@@ -29,6 +29,35 @@ type RefreshSessionResponse struct {
 	CheckAgainInSeconds int    `json:"check_again_in_seconds"`
 }
 
+// RecordSSOActivity extends the shared idle window only after an authenticated
+// browser input. The auth middleware already checked this session's sid.
+func (h *Handler) RecordSSOActivity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	raw, _ := sessionTokenFromRequest(r)
+	claims, err := auth.ParseSessionToken(raw)
+	if err != nil || claims["sub"] != userID {
+		writeError(w, http.StatusUnauthorized, "invalid session")
+		return
+	}
+	sid, _ := claims["sso_sid"].(string)
+	if sid == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := auth.RecordSSOActivity(r.Context(), sid); err != nil {
+		if errors.Is(err, auth.ErrSSORevoked) {
+			writeError(w, http.StatusUnauthorized, "SSO session expired")
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "SSO session status unavailable")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // RefreshSession extends the interactive session that authenticated this
 // request, when that session is inside its renewal window.
 //

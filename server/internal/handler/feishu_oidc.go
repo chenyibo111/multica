@@ -164,7 +164,7 @@ func (h *Handler) FeishuLoginCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create Feishu session")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: feishuIDTokenCookie, Value: identity.IDToken, Path: "/auth", MaxAge: int((30 * 24 * time.Hour).Seconds()), HttpOnly: true, Secure: strings.HasPrefix(h.FeishuOIDC.Config.RedirectURL, "https://"), SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: feishuIDTokenCookie, Value: identity.IDToken, Path: "/auth", MaxAge: int((8 * time.Hour).Seconds()), HttpOnly: true, Secure: strings.HasPrefix(h.FeishuOIDC.Config.RedirectURL, "https://"), SameSite: http.SameSiteLaxMode})
 	next, _ := claims["next"].(string)
 	target := h.FeishuOIDC.Config.AppURL + "/login"
 	if next != "" {

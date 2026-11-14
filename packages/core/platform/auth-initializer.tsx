@@ -366,6 +366,28 @@ export function AuthInitializer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryGeneration]);
 
+  useEffect(() => {
+    if (!cookieAuth) return;
+    const revalidate = () => {
+      const state = useAuthStore.getState();
+      if (state.status !== "authenticated" || state.user?.auth_source !== "feishu") return;
+      void state.refreshMe().catch((error) => {
+        if (error instanceof ApiError && error.status === 401) {
+          useAuthStore.getState().sessionExpired();
+        }
+      });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") revalidate();
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [cookieAuth]);
+
   // A session that ends leaves its whole client side behind: a warmed query
   // cache whose every entry has `staleTime: Infinity`, per-workspace drafts
   // and chat selection, the desktop tab layout. The screen it lands on offers

@@ -628,6 +628,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					h.DeclareChannelFileDelivery(string(channel.TypeFeishu))
 				}
 				patcher.Register(bus)
+				if directSender, ok := larkClient.(lark.DirectTextSender); ok {
+					lark.NewInboxNotifier(cs, installSvc, directSender, appURLFromEnv(), slog.Default()).Register(bus)
+				}
 
 				// Typing indicator: shows a "processing" reaction on the user's
 				// message while the agent is working. Terminal cleanup has its own
@@ -1738,6 +1741,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// string (Desktop, mobile). Browsers get theirs re-issued inline by
 		// middleware.Auth and never call this (MUL-7436).
 		r.Post("/api/auth/refresh", h.RefreshSession)
+		r.Post("/api/auth/activity", h.RecordSSOActivity)
 		r.Post("/api/upload-file", h.UploadFile)
 		r.Post("/api/feedback", h.CreateFeedback)
 		r.With(handler.RequireHumanActor).Post("/api/client-usage", h.UpsertClientUsage)

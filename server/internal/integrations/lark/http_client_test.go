@@ -635,6 +635,45 @@ func TestHTTPClient_SendTextMessage_HappyPath(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_SendDirectTextMessage_ToOpenID(t *testing.T) {
+	fake := newLarkFake(t)
+	fake.stubToken("tok_direct", 7200)
+	fake.stubSend(
+		map[string]any{"code": 0, "msg": "ok", "data": map[string]string{"message_id": "om_direct_1"}},
+		func(r *http.Request, body map[string]string) {
+			if got := r.URL.Query().Get("receive_id_type"); got != "open_id" {
+				t.Errorf("receive_id_type = %q, want open_id", got)
+			}
+			if got := body["receive_id"]; got != "ou_member_1" {
+				t.Errorf("receive_id = %q, want ou_member_1", got)
+			}
+			if got := body["msg_type"]; got != "text" {
+				t.Errorf("msg_type = %q, want text", got)
+			}
+			var content map[string]string
+			if err := json.Unmarshal([]byte(body["content"]), &content); err != nil {
+				t.Fatalf("decode content: %v", err)
+			}
+			if got := content["text"]; got != "任务已分配：修复登录" {
+				t.Errorf("text = %q", got)
+			}
+		},
+	)
+
+	c := newTestClient(fake, time.Now)
+	messageID, err := c.SendDirectTextMessage(context.Background(), SendDirectTextParams{
+		InstallationID: testCreds(),
+		OpenID:         "ou_member_1",
+		Text:           "任务已分配：修复登录",
+	})
+	if err != nil {
+		t.Fatalf("send direct text: %v", err)
+	}
+	if messageID != "om_direct_1" {
+		t.Errorf("message ID = %q, want om_direct_1", messageID)
+	}
+}
+
 // TestHTTPClient_SendTextMessage_ReplyInThread pins the wire shape of a
 // threaded reply: when ReplyTarget is set the client must POST to the
 // reply endpoint (/messages/<id>/reply), carry reply_in_thread=true, and
