@@ -88,6 +88,11 @@ func TestFeishuLoginCallbackCreatesAndReusesAccount(t *testing.T) {
 		if response.Code != http.StatusFound || response.Header().Get("Location") != "http://localhost:3000/login?next=%2Finvitations" {
 			t.Fatalf("callback failed: %d %s", response.Code, response.Body.String())
 		}
+		for _, cookie := range response.Result().Cookies() {
+			if cookie.Name == feishuIDTokenCookie && cookie.MaxAge != 8*60*60 {
+				t.Fatalf("ID token cookie age = %d", cookie.MaxAge)
+			}
+		}
 	}
 	login("first@example.test")
 	login("changed@example.test")

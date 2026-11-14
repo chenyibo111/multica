@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { ApiClient } from "../api/client";
 import { installFreezeWatchdog } from "../diagnostics/freeze-watchdog";
-import { setApiInstance, setSchemaLogger } from "../api";
+import { getApi, setApiInstance, setSchemaLogger } from "../api";
 import { createAuthStore, registerAuthStore } from "../auth";
 import { createChatStore, registerChatStore } from "../chat";
 import {
@@ -16,6 +16,7 @@ import { QueryProvider } from "../provider";
 import { createLogger } from "../logger";
 import { defaultStorage } from "./storage";
 import { AuthInitializer } from "./auth-initializer";
+import { watchSSOActivity } from "./sso-activity";
 import {
   createSessionRenewal,
   watchSessionActivity,
@@ -174,6 +175,14 @@ export function CoreProvider({
   useEffect(() => {
     installFreezeWatchdog();
   }, []);
+
+  useEffect(() => {
+    if (identity?.platform !== "web") return;
+    return watchSSOActivity(
+      () => getApi().recordSSOActivity(),
+      () => authStore.getState().status === "authenticated",
+    );
+  }, [identity]);
 
   // Sliding session renewal, driven by use rather than by a clock. The store
   // subscription covers the launch check: at mount the boot identity probe is
